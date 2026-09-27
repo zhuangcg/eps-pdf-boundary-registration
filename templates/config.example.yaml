@@ -1,0 +1,33 @@
+## 通用配置模板 / Generic configuration template
+# 复制后填写路径。级别、关系、提取方法和名称模式默认为 auto。
+# No source-specific fill palette or expected polygon count belongs in a generic default.
+source_map: "path/to/map.eps"           # EPS or vector PDF
+reference_boundary: "path/to/reference.gpkg"
+reference_layer: null                    # omit or set when GPKG has multiple layers
+admin_level: auto                        # auto | street | district | city | province | country
+source_scope: auto                       # auto | same_extent | shared_boundary | no_common_boundary
+user_intent: ""                          # optional explicit task statement
+output_dir: "runs/new-case/output"
+work_dir: "runs/new-case/work"
+
+extraction:
+  method: auto                           # auto | fill | line
+  bezier_tolerance_pt: 0.05
+  min_fill_area_pt2: null                # optional per-sheet filter
+  expected_admin_polygon_count: null    # optional validation
+  keep_colours_rgb: null                 # optional reviewed RGB triples, e.g. [[220,233,174]]
+  split_colours_rgb: []                  # optional reviewed colours reused across units
+  keep_strokes: null                     # optional [{rgb: [0,0,0], width_pt: 1.0, dashes: ""}]
+  snap_tolerance_pt: null                # default: no gap bridging; page points when explicitly set
+
+names:
+  mode: auto                             # auto permits blank names; required gates delivery
+  outlined_text_ocr_dpi: 300
+  reviewed_labels: []                    # map-backed crop review only; never geographic guesses
+
+reference:
+  fit_crs: null                          # true-metre projected CRS; auto picks local fit CRS
+
+landmarks: []                            # shared arc seeds: two {page_pt: [x,y], lonlat: [lon,lat], source: "..."}
+delivery:
+  mode: R                                # C only for verified same_extent

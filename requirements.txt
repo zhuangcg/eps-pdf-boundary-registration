@@ -1,0 +1,10 @@
+numpy==1.26.4
+scipy==1.17.1
+geopandas==1.0.1
+shapely==2.0.6
+pyproj==3.7.0
+matplotlib==3.9.2
+Pillow==11.0.0
+PyMuPDF==1.28.0
+PyYAML==6.0.3
+pyogrio==0.10.0

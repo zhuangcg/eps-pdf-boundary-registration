@@ -1,0 +1,36 @@
+# Case-specific settings. Supply the matching licensed source files under data/.
+source_map: data/shenzhen.eps
+reference_boundary: data/shenzhen_boundary.gpkg
+reference_layer: shenzhen_boundary
+admin_level: district
+source_scope: same_extent
+output_dir: runs/shenzhen-current/output
+work_dir: runs/shenzhen/work
+delivery: {mode: C}
+reference: {fit_crs: 'EPSG:4547'}
+names:
+  mode: required
+  outlined_text_ocr_dpi: 200
+  reviewed_labels:
+    - admin_id: A003
+      name: 大鹏新区
+      page_pt: [1592.3, 898.7]
+      raw_text: 鹏 / 新
+      evidence: 'Historical D03 map-body crop: vertically spaced 大鹏新区 glyphs; OCR split the label'
+      crop_box_pt: [1530, 810, 1690, 1040]
+extraction:
+  bezier_tolerance_pt: 0.002
+  min_fill_area_pt2: 20
+  expected_admin_polygon_count: 10
+  keep_colours_rgb:
+    - [255, 250, 198]
+    - [217, 235, 203]
+    - [254, 220, 189]
+    - [199, 210, 236]
+    - [253, 210, 185]
+    - [192, 226, 202]
+    - [250, 209, 227]
+    - [251, 201, 196]
+    - [219, 206, 230]
+    - [220, 233, 174]
+  split_colours_rgb: []

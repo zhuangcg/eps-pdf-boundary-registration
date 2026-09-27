@@ -1,0 +1,43 @@
+# Case-specific settings. Supply the matching licensed source files under data/.
+source_map: data/luohu.eps
+reference_boundary: data/shenzhen_boundary.gpkg
+reference_layer: shenzhen_boundary
+admin_level: street
+source_scope: shared_boundary
+output_dir: runs/luohu-current/output
+work_dir: runs/luohu/work
+delivery: {mode: R}
+reference: {fit_crs: 'EPSG:32649'}
+names:
+  mode: required
+  outlined_text_ocr_dpi: 300
+  reviewed_labels:
+    - {admin_id: A001, name: 东湖, page_pt: [595.3, 383.8], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A002, name: 清水河, page_pt: [294.7, 481.5], raw_text: 清水河口, evidence: 'OCR trailing glyph checked in the map crop'}
+    - {admin_id: A003, name: 莲塘, page_pt: [745.7, 496.2], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A004, name: 黄贝, page_pt: [644.8, 568.5], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A005, name: 东晓, page_pt: [555.4, 367.6], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A006, name: 翠竹, page_pt: [520.6, 455.5], raw_text: 问翠竹, evidence: 'OCR prefix checked in the map crop'}
+    - {admin_id: A007, name: 笋岗, page_pt: [391.6, 482.7], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A008, name: 南湖, page_pt: [462.4, 646.2], evidence: 'Historical focused crop after whole-page OCR missed the name'}
+    - {admin_id: A009, name: 桂园, page_pt: [385.6, 621.1], evidence: 'Historical reviewed map-body street label'}
+    - {admin_id: A010, name: 东门, page_pt: [433.3, 625.3], evidence: 'Historical reviewed map-body street label'}
+landmarks:
+  - {page_pt: [431.5, 742.0], lonlat: [114.117, 22.532], source: 'Luohu Bridge; approximate case seed, verify before fitting'}
+  - {page_pt: [1076.3, 398.8], lonlat: [114.214644, 22.582278], source: 'Dawutong summit; historical case seed, verify before fitting'}
+extraction:
+  bezier_tolerance_pt: 0.05
+  min_fill_area_pt2: 20
+  expected_admin_polygon_count: 10
+  keep_colours_rgb:
+    - [220, 233, 174]
+    - [192, 226, 202]
+    - [219, 206, 230]
+    - [250, 209, 227]
+    - [254, 220, 189]
+    - [255, 250, 198]
+    - [251, 201, 196]
+    - [217, 235, 203]
+  split_colours_rgb:
+    - [219, 206, 230]
+    - [254, 220, 189]
