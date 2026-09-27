@@ -11,6 +11,8 @@ description: 专门处理天地图导出的无坐标系行政区划 EPS 图：�
 
 ## 核心流程
 
+`reference_boundary` 是与源 EPS/PDF 分开的必需输入，使用同一城市或目标区域、已定义正确 CRS 的 SHP 或 GPKG。不得把 EPS 页面坐标当作有 CRS 的边界数据；若 CRS 缺失或范围关系不清，先停下核实，不猜测或强行配准。
+
 1. 检查 EPS、参考边界的 CRS/图层和用户指定行政级别；先检查页面预览是否确实包含待提取的行政区划。
 2. 判断源图与参考边界是 `same_extent`、`shared_boundary` 还是 `no_common_boundary`。范围不清楚时先复核；没有可信共同边界或其他定位依据时停止，不强行拟合。
 3. 从填充面或经确认的闭合边界提取行政区几何。名称只使用图面文字或 OCR 证据；不能按形状、面积、地理常识或面顺序猜名。
@@ -19,10 +21,12 @@ description: 专门处理天地图导出的无坐标系行政区划 EPS 图：�
 
 ## 运行与复核
 
+运行时从本文件 SKILL.md 的实际位置解析 Skill 根目录，并用该目录下 scripts/ 与 templates/ 的绝对路径；npx 安装后它们不在用户当前项目目录。EPS、参考边界、配置和结果文件则留在用户项目目录。
+
 ```powershell
-python scripts/inspect_environment.py --config <run.yaml>
-python scripts/run.py --config <run.yaml> --intent "提取天地图区级边界；图面范围与参考边界相同"
-python scripts/check_output_manifest.py <output_dir> --config <run.yaml>
+python "<skill-root>/scripts/inspect_environment.py" --config <run.yaml>
+python "<skill-root>/scripts/run.py" --config <run.yaml> --intent "提取天地图区级边界；图面范围与参考边界相同"
+python "<skill-root>/scripts/check_output_manifest.py" <output_dir> --config <run.yaml>
 ```
 
 默认使用保留源图几何的 Mode R。只有确认源图与参考边界完全同范围，且明确需要贴合外轮廓时，才考虑高级 Mode C；解释见 [方法说明](references/methodology.md)。运行前从 `templates/config.example.yaml` 复制配置；案例参数见 `examples/`。

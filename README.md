@@ -43,23 +43,42 @@
 
 如果输入本身已有可靠 CRS，应在 GIS 软件中正常重投影，无需使用本项目。
 
+## 🗂️ 配准必须准备两类数据
+
+请把“待配准图”和“参考边界”分开准备；它们不是可以互相替代的多种输入格式：
+
+| 数据 | 必需文件 | 要求 |
+|---|---|---|
+| 待配准地图 | 天地图导出的无坐标行政区划 `.eps`（主要场景）；结构完整的矢量 `.pdf` 仅作兼容输入 | 图面应包含要提取的行政边界；EPS 页面坐标本身没有地理坐标系 |
+| 参考边界 | 与地图属于**同一城市或目标区域**、带有正确空间坐标系的 `.shp` 或 `.gpkg` | 必须能提供地理定位依据；优先选与图面同范围、行政级别相符的边界。Shapefile 的 `.shp/.shx/.dbf/.prj` 需一并保留；GeoPackage 的坐标系应已正确写入 |
+
+`reference_boundary` 填第二类数据的路径。GeoPackage 含多个图层时，再填写 `reference_layer`。两份数据不必使用相同 CRS，程序会以参考数据 CRS 交付；但参考 CRS 必须已知且正确。局部地图只有在与参考数据存在经核实的共同边界弧段或其他可靠定位依据时才能配准；“同一城市”本身不足以定位没有共同边界的内陆图。不要把无坐标 EPS 的页面坐标直接指定为参考数据的 CRS。
+
 ## 🚀 快速开始
 
-> 环境要求：**Python 3.11**。Windows 命令使用 PowerShell。处理 EPS 还需安装 Ghostscript。
+> 环境要求：安装 Skill 需要 Node.js/npm（提供 `npx`）；运行脚本需要 **Python 3.11**。Windows 命令使用 PowerShell。处理 EPS 还需安装 Ghostscript。
 
-### 1. 克隆并安装依赖
+### 1. 用 npx 安装到 Codex
 
 ```powershell
-git clone https://github.com/zhuangcg/tianditu-eps-boundary-registration.git
-cd tianditu-eps-boundary-registration
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+npx skills@latest add zhuangcg/tianditu-eps-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
 ```
 
-macOS/Linux：用 `python3.11 -m venv .venv` 创建环境，后续把 `.venv\Scripts\python.exe` 换为 `./.venv/bin/python`。
+这是 Agent Skills 的 GitHub 安装方式，会把 Skill 与所需脚本放到 Codex 的用户级目录；不需要手动克隆仓库。安装完成后重新打开 Codex 会话。`npx` 会按需运行 [skills CLI](https://www.npmjs.com/package/skills)。
 
-### 2. 安装 Ghostscript
+### 2. 安装 Python 运行依赖
+
+在你存放输入数据和输出结果的工作目录创建独立环境。依赖清单直接从 GitHub 读取，无需下载或克隆整个仓库：
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/tianditu-eps-boundary-registration/main/requirements.txt
+```
+
+macOS/Linux 使用 `python3.11 -m venv .venv`，并将 `.venv\Scripts\python.exe` 换为 `./.venv/bin/python`。若只想手动运行源码，也可从 GitHub 下载仓库后按 `requirements.txt` 安装；这是可选方式。
+
+### 3. 安装 Ghostscript（仅处理 EPS 时需要）
 
 从 [Ghostscript 官方下载页](https://ghostscript.com/releases/)安装，并确认命令可用：
 
@@ -73,33 +92,37 @@ gswin64c -version
 .\.venv\Scripts\python.exe -m pip install rapidocr-onnxruntime==1.4.4
 ```
 
-### 3. 创建案例配置
+### 4. 创建案例配置
+
+以下命令按 Codex 默认用户目录设置 Skill 路径；若安装时使用了自定义 `CODEX_HOME`，请按安装位置调整。
 
 ```powershell
 New-Item -ItemType Directory -Force runs | Out-Null
-Copy-Item templates/config.example.yaml runs/my-case.yaml
+$skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
+Copy-Item "$skillRoot\templates\config.example.yaml" runs/my-case.yaml
 ```
 
 编辑 `runs/my-case.yaml`，至少填写：
 
 ```yaml
 source_map: "D:/maps/tianditu-districts.eps"
-reference_boundary: "D:/gis/reference.gpkg"
-reference_layer: boundaries
+reference_boundary: "D:/gis/same-area-reference.gpkg"
+reference_layer: boundaries # only for a GeoPackage with multiple layers
 admin_level: district
 source_scope: same_extent
 output_dir: "runs/my-case/output"
 work_dir: "runs/my-case/work"
 ```
 
-`reference_layer` 在参考 GeoPackage 含多个图层时填写。`same_extent` 用于源图与参考边界范围相同的情况；局部图只有在存在**经核实的共同边界弧段**时才使用 `shared_boundary`。两者都不满足时，流程会停止，不会把内陆图强行贴到上级边界。
+`reference_boundary` 必须是同一城市或目标区域、已定义正确 CRS 的 `.shp` 或 `.gpkg`。`reference_layer` 仅在 GeoPackage 含多个图层时填写。`same_extent` 用于源图与参考边界同范围；局部图仅在有经核实的共同边界弧段时使用 `shared_boundary`。二者都不满足时，流程会停止，不会把内陆图强行贴到上级边界。
 
-### 4. 检查输入并运行
+### 5. 检查输入并运行
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/inspect_environment.py --config runs/my-case.yaml
-.\.venv\Scripts\python.exe scripts/run.py --config runs/my-case.yaml --intent "提取区级边界；图面范围与参考区界相同"
-.\.venv\Scripts\python.exe scripts/check_output_manifest.py runs/my-case/output --config runs/my-case.yaml
+$skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\inspect_environment.py" --config runs/my-case.yaml
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml --intent "提取区级边界；图面范围与参考区界相同"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\check_output_manifest.py" runs/my-case/output --config runs/my-case.yaml
 ```
 
 ## 🖼️ 案例预览

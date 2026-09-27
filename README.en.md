@@ -43,19 +43,33 @@ The core workflow uses one source sheet, one reference boundary, and one global 
 
 If the input already has a reliable CRS, reproject it in GIS instead.
 
+## Required inputs: EPS map + georeferenced reference boundary
+
+Prepare two separate datasets:
+
+| Dataset | Required file | Requirement |
+|---|---|---|
+| Map to register | CRS-free administrative `.eps` exported from Tianditu (primary); structurally complete vector `.pdf` (secondary) | Must contain the boundaries to extract. EPS page coordinates have no geographic CRS. |
+| Reference boundary | `.shp` or `.gpkg` for the **same city or target area**, with the correct CRS defined | Must provide a location anchor. Prefer matching extent and administrative level. Keep a Shapefile's `.shp/.shx/.dbf/.prj` files together; GeoPackage must contain the correct CRS. |
+
+`reference_boundary` is required and points to the reference dataset, not the EPS. The two files may use different CRSs; output uses the reference CRS. A local map also needs a verified shared boundary arc or another reliable location anchor. Sharing a city name alone cannot locate an interior map with no shared boundary.
+
 ## 🚀 Quick start
 
-> Requirement: **Python 3.11**. Commands below use Windows PowerShell. EPS processing also requires Ghostscript.
+> Requirements: Node.js/npm (for npx installation) and **Python 3.11**. Commands below use Windows PowerShell. EPS processing also requires Ghostscript.
 
-### 1. Clone and install dependencies
+### 1. Install the Skill and Python dependencies
 
 ```powershell
-git clone https://github.com/zhuangcg/tianditu-eps-boundary-registration.git
-cd tianditu-eps-boundary-registration
+# Installs the skill directly from GitHub; no manual clone is needed.
+# Requires Node.js/npm (npx). Reopen Codex after the skill install.
+npx skills@latest add zhuangcg/tianditu-eps-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/tianditu-eps-boundary-registration/main/requirements.txt
 ```
+
+The npx command installs the skill files and scripts for Codex; the separate pip command installs Python libraries. You do not need to clone the repository. See the [skills CLI documentation](https://www.npmjs.com/package/skills).
 
 On macOS/Linux, create the environment with `python3.11 -m venv .venv` and replace `.venv\Scripts\python.exe` below with `./.venv/bin/python`.
 
@@ -75,17 +89,24 @@ Vector PDF does not need Ghostscript. If names in the EPS are outlined and need 
 
 ### 3. Create a case configuration
 
+The commands assume Codex's default user skills directory. If you set a custom `CODEX_HOME`, adjust `$skillRoot` to the installation path.
+
 ```powershell
 New-Item -ItemType Directory -Force runs | Out-Null
-Copy-Item templates/config.example.yaml runs/my-case.yaml
+$skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
+Copy-Item "$skillRoot\templates\config.example.yaml" runs/my-case.yaml
 ```
 
 Edit `runs/my-case.yaml` and set at least:
 
 ```yaml
+# Primary input: a CRS-free Tianditu administrative EPS (vector PDF is secondary).
 source_map: "D:/maps/tianditu-districts.eps"
-reference_boundary: "D:/gis/reference.gpkg"
-reference_layer: boundaries
+# Required reference: CRS-defined .shp/.gpkg for the same city or target area
+# This is separate from the source EPS/PDF and must have a known, correct CRS.
+# For Shapefile, keep .shp/.shx/.dbf/.prj sidecars together; GeoPackage embeds its CRS.
+reference_boundary: "D:/gis/same-area-reference.gpkg"
+reference_layer: boundaries # only for a multi-layer GeoPackage
 admin_level: district
 source_scope: same_extent
 output_dir: "runs/my-case/output"
@@ -97,9 +118,10 @@ Set `reference_layer` when the GeoPackage has multiple layers. Use `same_extent`
 ### 4. Inspect inputs and run
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/inspect_environment.py --config runs/my-case.yaml
-.\.venv\Scripts\python.exe scripts/run.py --config runs/my-case.yaml --intent "Extract district boundaries; the sheet and reference cover the same extent"
-.\.venv\Scripts\python.exe scripts/check_output_manifest.py runs/my-case/output --config runs/my-case.yaml
+$skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\inspect_environment.py" --config runs/my-case.yaml
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml --intent "Extract district boundaries; the sheet and reference cover the same extent"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\check_output_manifest.py" runs/my-case/output --config runs/my-case.yaml
 ```
 
 ## 🖼️ Examples
