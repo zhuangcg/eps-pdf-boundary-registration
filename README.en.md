@@ -1,104 +1,170 @@
-## From Tianditu EPS to Reviewable GIS Boundaries
+<div align="center">
 
-[简体中文](README.md)
+<h2>🗺️ Tianditu EPS Boundary Registration</h2>
 
-Designed for CRS-free administrative EPS maps obtained from Tianditu, with vector PDF also supported. The workflow extracts map faces, estimates one global page-to-map transform from a trusted reference boundary, and writes reviewable GeoPackage vectors and QC figures.
+**Turn CRS-free Tianditu administrative EPS maps into reviewable GIS boundaries**
+
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![Input](https://img.shields.io/badge/Input-Tianditu%20EPS-2b6cb0.svg)](#supported-scope)
+[![Output](https://img.shields.io/badge/Output-GeoPackage-38a169.svg)](#-outputs-and-quality-checks)
+[![Use](https://img.shields.io/badge/Use-Research%20cartography-orange.svg)](#️-accuracy-and-limitations)
+
+*Focused on Tianditu administrative maps, with reviewable vectors and QC evidence.*
+
+[🚀 Quick start](#-quick-start) · [🖼️ Examples](#️-examples) · [🛡️ Limitations](#️-accuracy-and-limitations) · [简体中文](README.md)
+
+</div>
+
+---
 
 > [!CAUTION]
-> **For research cartography and exploratory analysis only.** Outputs are not an authoritative or standard map, an annotated-map original, a legal boundary, or a surveying deliverable. Registration error cannot be zero, and no accuracy level is guaranteed. Results depend on the accuracy and date of the reference boundary, the complexity of EPS map features, cartographic generalization, the length of shared boundary, and review quality. A reference outer boundary does not independently validate internal boundaries. Inspect `qc.json` and `overlay.png` for every case, and follow the source-data licenses.
+> **For research cartography and exploratory analysis only.** Outputs are not a standard map, annotated-map original, legal boundary, or surveying deliverable, and cannot replace authoritative map data. Registration error cannot be zero and no accuracy level is guaranteed. Results depend on reference-boundary accuracy and date, EPS feature complexity, cartographic generalization, shared-boundary length, and review quality. A reference outer boundary does not independently validate internal administrative boundaries. Inspect `qc.json` and `overlay.png` for each run, and follow source-data licenses.
 
-### From input to result
+## ✨ What it does
 
-The three panels show: **EPS vector map + reference boundary = registered vector result**. The reference and result use unfilled solid boundary lines, and the right panel has no legend. See the GeoPackage and QC files for data and review details.
+This project is designed for **CRS-free administrative EPS maps obtained from Tianditu**. It extracts administrative polygons, registers them against a trusted boundary supplied by the user, and writes a GeoPackage with QC outputs.
 
-![Shenzhen workflow: EPS vector map plus reference boundary data produces registered vector results](docs/images/shenzhen-example.png)
+The core workflow uses one source sheet, one reference boundary, and one global transform. It never assigns the reference CRS directly to EPS page coordinates. If the available boundary does not provide a reliable spatial anchor, the workflow stops for review.
 
-The runner supports EPS and vector PDF. SVG, DXF, and raster maps are not supported. EPS conversion requires Ghostscript. Source maps and reference data are not included in this repository.
+### Features
 
-### Install
+- 🧭 **Tianditu-focused** — the project name, examples, and defaults target Tianditu EPS maps.
+- ✂️ **Vector extraction** — reads filled faces or boundary strokes and retains reviewable geometry.
+- 📍 **Reference-based registration** — supports matching extents or a verified shared boundary arc.
+- 📦 **Inspectable delivery** — writes administrative units, reference/registered outlines, QC metrics, and an overlay figure.
 
-Python 3.11 is required; the dependency file is pinned from a Python 3.11 environment. Commands below use Windows PowerShell.
+## 🎯 Supported scope
 
-Clone or download the repository from GitHub, open the `eps-vector-boundary-registration` root folder in a terminal, then run:
+| Input | Support |
+|---|---|
+| CRS-free administrative EPS exported from Tianditu | **Primary use case** |
+| Structurally complete vector PDF maps | Compatible secondary input; examples focus on Tianditu EPS |
+| Scans, raster maps, SVG, DXF, or general drawing files | Outside the current runner's scope |
+
+If the input already has a reliable CRS, reproject it in GIS instead.
+
+## 🚀 Quick start
+
+> Requirement: **Python 3.11**. Commands below use Windows PowerShell. EPS processing also requires Ghostscript.
+
+### 1. Clone and install dependencies
 
 ```powershell
+git clone https://github.com/zhuangcg/tianditu-eps-boundary-registration.git
+cd tianditu-eps-boundary-registration
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-On macOS/Linux, create the environment with `python3.11 -m venv .venv` and replace `.venv\Scripts\python.exe` in later commands with `./.venv/bin/python`. Use `mkdir -p runs` and `cp templates/config.example.yaml runs/my-case.yaml` to copy the config.
+On macOS/Linux, create the environment with `python3.11 -m venv .venv` and replace `.venv\Scripts\python.exe` below with `./.venv/bin/python`.
 
-For EPS files, install Ghostscript from the [official downloads page](https://ghostscript.com/releases/) and make `gswin64c` (Windows) or `gs` (macOS/Linux) available on `PATH`. Verify with:
+### 2. Install Ghostscript
+
+Install it from the [official downloads page](https://ghostscript.com/releases/) and check that it is available:
 
 ```powershell
 gswin64c -version
 ```
 
-Vector PDF does not need Ghostscript. If administrative names are outlined and need OCR, install the optional dependency:
+Vector PDF does not need Ghostscript. If names in the EPS are outlined and need OCR, install the optional package:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install rapidocr-onnxruntime==1.4.4
 ```
 
-### Run a new case
-
-From the repository root, copy the generic configuration and edit its paths and layer name. Set `reference_layer` when the reference GeoPackage contains multiple layers. Absolute paths are recommended.
+### 3. Create a case configuration
 
 ```powershell
 New-Item -ItemType Directory -Force runs | Out-Null
 Copy-Item templates/config.example.yaml runs/my-case.yaml
 ```
 
-Set at least these values in `runs/my-case.yaml`:
+Edit `runs/my-case.yaml` and set at least:
 
 ```yaml
-source_map: "D:/maps/my-map.eps"
+source_map: "D:/maps/tianditu-districts.eps"
 reference_boundary: "D:/gis/reference.gpkg"
-reference_layer: reference_layer
+reference_layer: boundaries
 admin_level: district
 source_scope: same_extent
 output_dir: "runs/my-case/output"
 work_dir: "runs/my-case/work"
 ```
 
-Choose `admin_level` and `source_scope` from the evidence: use `same_extent` for matching extents; use `shared_boundary` for a verified continuous shared outer arc and provide two checked landmarks. With no shared boundary, the workflow stops instead of forcing an interior map onto a parent outline. Keep `auto` when the relationship is uncertain and resolve the review prompt.
+Set `reference_layer` when the GeoPackage has multiple layers. Use `same_extent` when the source and reference cover the same area. Use `shared_boundary` only for a verified common boundary arc. If neither condition holds, registration stops instead of forcing an interior map onto a parent outline.
+
+### 4. Inspect inputs and run
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/inspect_environment.py --config runs/my-case.yaml
-.\.venv\Scripts\python.exe scripts/run.py --config runs/my-case.yaml --intent "Extract district boundaries; the source sheet and reference cover the same extent"
+.\.venv\Scripts\python.exe scripts/run.py --config runs/my-case.yaml --intent "Extract district boundaries; the sheet and reference cover the same extent"
 .\.venv\Scripts\python.exe scripts/check_output_manifest.py runs/my-case/output --config runs/my-case.yaml
 ```
 
-A typical Mode R delivery contains `registered.gpkg`, `qc.json`, `overlay.png`, and `run.log`. Consider Mode C only when the EPS and reference have the same extent. Added area used to conform an outer outline has no source-sheet evidence and must be interpreted separately from Mode R.
+## 🖼️ Examples
 
-### Examples
+| Shenzhen district EPS | Luohu street-level EPS |
+|:---:|:---:|
+| ![Shenzhen example: Tianditu EPS plus a reference boundary produces unfilled solid vector boundaries](docs/images/shenzhen-example.png) | ![Luohu example: Tianditu EPS plus a reference boundary produces unfilled solid vector boundaries](docs/images/luohu-example.png) |
+| Same-extent registration; 10 districts extracted. Sampled outline distance: 12.75 m median and 72.99 m P90. No same-level district reference was available to validate internal boundaries. | Uses about 13.76 km of verified shared boundary. Sampled distance: 10.90 m median and 23.63 m P90. About 73.34% of source-outline samples did not participate in fitting. |
 
-#### Shenzhen district map: full-outline registration
+These values describe their specific cases and data versions; they are not general accuracy guarantees or acceptance thresholds. Original EPS and reference data are not included. Reproduction requires authorized copies of the matching data.
 
-The unified runner extracted 10 districts and recognized 10 map names. In this run, the sampled outline distance was 12.75 m median and 72.99 m P90. No same-level district reference was available, so these numbers do not validate internal district boundaries. They describe this case and data version only.
+## 📦 Outputs and quality checks
 
-#### Luohu street map: registration from a shared boundary arc
+| File | Contents |
+|---|---|
+| `registered.gpkg` | Registered administrative units, registered outline, and reference boundary |
+| `qc.json` | Scope decision, extraction method, name review, fit parameters, and sampled boundary metrics |
+| `overlay.png` | Overlay for reviewing extracted and reference boundaries |
+| `run.log` | Run summary |
 
-![Luohu workflow: EPS vector map plus reference boundary data produces registered street boundaries](docs/images/luohu-example.png)
+The default delivery retains geometry extracted from the source map. Consider advanced Mode C only when the EPS and reference have the same extent and the outer outline must conform exactly; it adds area without source-sheet evidence. See [methodology](references/methodology.md).
 
-This case used about 13.76 km of verified shared boundary. The sampled arc distance was 10.90 m median and 23.63 m P90; about 73.34% of the source outline samples did not participate in fitting, and the reference does not validate internal street boundaries. These values are not general acceptance thresholds.
+## 🛡️ Accuracy and limitations
 
-See the [case notes](docs/cases.md) and [experiment record](docs/experiments.md) for calculation details. Original EPS and reference GPKG files are not included; reproducing these examples requires authorized copies of the matching source data.
+- Registration error cannot be eliminated. Accuracy depends on reference data, EPS feature complexity, generalization, shared-boundary length, and review quality.
+- A reference outer boundary constrains the overall position and outline; it does not validate internal administrative boundaries by itself.
+- Boundary-distance metrics are sampling approximations, not analytic Hausdorff distances or universal acceptance thresholds.
+- Do not treat outputs as annotated-map originals, legal boundaries, or surveying results.
 
-### Registration limits and review
+## ❓ FAQ
 
-- One global transform is applied to every extracted unit; the reference CRS is never assigned directly to page coordinates.
-- Full extents use the outer outline. A local map uses only a verified shared boundary arc. A parent outline alone cannot locate an interior map.
-- `overlay.png` helps reveal spatial mismatch. `qc.json` records scope decisions, extraction method, name coverage, sampled distances, and the unconstrained fraction.
-- Boundary sampling metrics are approximations, not analytic Hausdorff distances or accuracy guarantees.
-- Figures use Helvetica, 12 pt base text, and 1.5 pt default line width. The workflow illustration has no legend; panel headings identify each stage.
+**Can an inland map be registered using only a city or province outline?**
 
-### Documentation
+No. The parent outline alone cannot establish the interior map's location. A shared boundary, known control points, or another reliable spatial anchor is required.
 
-- [Skill workflow](SKILL.md)
-- [Generic configuration](templates/config.example.yaml)
-- [Input and naming contract](references/input-and-name-contract.md)
-- [Methodology](references/methodology.md)
-- [QC definitions](references/qc-spec.md)
-- [Experiment and reproducibility notes](docs/experiments.md)
+**What if administrative names are not recognized?**
+
+The runner preserves stable `admin_id` values and does not guess names. Review OCR status and `qc.json`, then resolve labels manually if needed.
+
+**Does a good outer-boundary fit prove internal boundaries are accurate?**
+
+No. Internal boundaries require independent same-level reference data for validation.
+
+## 🗂️ Project structure
+
+```text
+tianditu-eps-boundary-registration/
+├── scripts/       # extraction, registration, execution, and output checks
+├── templates/     # generic config and run-log templates
+├── examples/      # Shenzhen and Luohu case parameters
+├── docs/images/   # README case figures
+├── references/    # methodology, input contract, and QC definitions
+├── tests/         # automated tests
+├── SKILL.md       # concise agent workflow
+├── README.md      # Chinese documentation
+└── README.en.md   # English documentation
+```
+
+## 📚 More documentation
+
+| Document | Contents |
+|---|---|
+| [SKILL.md](SKILL.md) | Tianditu EPS workflow and required safeguards |
+| [Generic config](templates/config.example.yaml) | Input, reference, and output settings |
+| [Case notes](docs/cases.md) | Shenzhen and Luohu data definitions |
+| [Methodology](references/methodology.md) | Extraction, scope, and registration details |
+| [QC definitions](references/qc-spec.md) | Quality-check metrics |
+| [Input contract](references/input-and-name-contract.md) | Input fields and naming rules |
