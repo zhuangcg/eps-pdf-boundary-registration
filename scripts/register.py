@@ -5,11 +5,15 @@ import math
 
 import geopandas as gpd
 import numpy as np
+import pyogrio
 from pyproj import CRS, Transformer
 from scipy.spatial import cKDTree
 from shapely import affinity
+from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
+
+from scope import ReviewScope
 
 
 class ReviewRegistration(ValueError):
@@ -41,6 +45,25 @@ def sample_ring(coords, spacing):
 
 def sample_outer(geom, spacing):
     return sample_ring(exterior(geom).exterior.coords, spacing)
+
+
+def sample_exteriors(geom, spacing):
+    samples, weights = [], []
+    for part in parts(geom):
+        ring = part.exterior
+        if ring.length < 8 * spacing:
+            points = np.asarray([ring.interpolate(ring.length / 2).coords[0]])
+        else:
+            points = sample_ring(ring.coords, spacing)
+        samples.append(points)
+        weights.extend([ring.length / len(points)] * len(points))
+    return np.concatenate(samples), np.asarray(weights)
+
+
+def weighted_p90(values, weights):
+    order = np.argsort(values)
+    return float(values[order][np.searchsorted(np.cumsum(weights[order]),
+                                                0.9 * weights.sum())])
 
 
 def apply_points(points, matrix):
@@ -105,18 +128,69 @@ def choose_fit_crs(reference, configured):
 def load_reference(config):
     path = config["reference_boundary"]
     layer = config.get("reference_layer")
+    if str(path).lower().endswith(".gpkg") and not layer:
+        layers = [name for name, geometry_type in pyogrio.list_layers(path)
+                  if geometry_type is not None]
+        if len(layers) != 1:
+            raise ReviewScope(f"reference GPKG layers={layers}; set reference_layer")
+        layer = layers[0]
     raw = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
     if raw.crs is None or raw.empty:
-        raise ValueError("reference boundary needs a known CRS and nonempty geometry")
-    geom = raw.geometry.union_all()
+        raise ReviewScope("reference boundary needs a known CRS and nonempty geometry")
+    reference_options = config.get("reference", {})
+    selection = reference_options.get("filter")
+    if selection is not None:
+        if not isinstance(selection, dict) or set(selection) != {"field", "value"}:
+            raise ReviewScope("reference.filter needs exactly field and value")
+        field, value = selection["field"], selection["value"]
+        if field not in raw.columns or field == raw.geometry.name:
+            raise ReviewScope(f"reference.filter field is absent or not an attribute: {field}")
+        raw = raw.loc[raw[field] == value].copy()
+        if raw.empty:
+            raise ReviewScope(f"reference.filter matched no features: {field}={value!r}")
+    id_field = reference_options.get("id_field")
+    if id_field and (id_field not in raw.columns or raw[id_field].isna().any() or
+                     raw[id_field].nunique() != 1):
+        raise ReviewScope(f"selected reference must have one non-null {id_field} identity")
+    if selection is not None and len(raw) > 1 and not id_field:
+        raise ReviewScope("multiple selected reference features need reference.id_field")
+    if (raw.geometry.isna().any() or raw.geometry.is_empty.any() or
+        (selection is not None and not raw.geometry.is_valid.all())):
+        raise ReviewScope("selected reference contains null, empty, or invalid geometry")
+    try:
+        geom = raw.geometry.union_all()
+    except GEOSException as exc:
+        raise ReviewScope("reference geometry cannot be unioned; repair the source dataset") from exc
+    source_repaired = not geom.is_valid
     if not geom.is_valid:
-        geom = geom.buffer(0)
+        fixed = geom.buffer(0)
+        if abs(fixed.area - geom.area) > max(1e-6, 0.001 * geom.area):
+            raise ReviewScope("reference geometry repair changes area; review source dataset")
+        geom = fixed
     if geom.is_empty or geom.geom_type not in {"Polygon", "MultiPolygon"}:
-        raise ValueError("reference must contain polygon geometry")
-    fit_crs = choose_fit_crs(raw, config.get("reference", {}).get("fit_crs"))
+        raise ReviewScope("reference must contain polygon geometry")
+    fit_crs = choose_fit_crs(gpd.GeoDataFrame(geometry=[geom], crs=raw.crs),
+                             config.get("reference", {}).get("fit_crs"))
     fit_geom = gpd.GeoSeries([geom], crs=raw.crs).to_crs(fit_crs).iloc[0]
+    repaired = not fit_geom.is_valid
+    if repaired:
+        fixed = fit_geom.buffer(0)
+        if (fixed.is_empty or not fixed.is_valid or
+            abs(fixed.area - fit_geom.area) > max(1e-6, 0.001 * fit_geom.area)):
+            raise ReviewScope("reference geometry remains invalid after projection repair")
+        fit_geom = fixed
+    name_fields = [col for col in raw.columns if col != raw.geometry.name and
+                   any(word in col.lower() for word in ("name", "名称", "地名", "行政区"))]
+    evidence = {"layer": layer, "crs": str(raw.crs), "feature_count": len(raw),
+                "component_count": len(parts(geom)), "bounds": list(map(float, geom.bounds)),
+                "source_repaired": source_repaired, "projection_repaired": repaired,
+                "selection": {"filter": selection, "features": len(raw),
+                              "area_km2": float(fit_geom.area / 1e6)},
+                "name_samples": {col: raw[col].dropna().astype(str).unique()[:20].tolist()
+                                 for col in name_fields[:3]}}
     return {"geometry": fit_geom, "source_geometry": geom,
-            "fit_crs": fit_crs, "output_crs": raw.crs}
+            "fit_crs": fit_crs, "output_crs": raw.crs, "evidence": evidence,
+            "selection": evidence["selection"]}
 
 
 def _distance_summary(a, b):
@@ -174,8 +248,12 @@ def _complete(source, reference, config):
             ranked.append((float(np.median(forward) + np.median(reverse)),
                            reflection, rotation, initial))
     ranked.sort(key=lambda row: row[0])
+    unique = []
+    for candidate in ranked:
+        if not any(np.allclose(candidate[3], other[3]) for other in unique):
+            unique.append(candidate)
     tried = []
-    for score, reflection, rotation, initial in ranked[:4]:
+    for score, reflection, rotation, initial in unique:
         matrix, history = _icp(src, dense, initial)
         transformed = apply_points(src, matrix)
         forward = tree.query(transformed)[0]
@@ -196,6 +274,21 @@ def _complete(source, reference, config):
         if scale_stats(affine)["anisotropy"] < 0.05:
             best = {**best, "matrix": affine, "model": "affine"}
     best["affine_median_gain"] = float(gain)
+    best_geom = apply_geom(src_geom, best["matrix"])
+    best_iou = best_geom.intersection(ref_geom).area / best_geom.union(ref_geom).area
+    corners = np.asarray([(src_geom.bounds[x], src_geom.bounds[y])
+                          for x, y in ((0, 1), (0, 3), (2, 1), (2, 3))])
+    radius = math.sqrt(reference.area / math.pi)
+    best["plausible_alternatives"] = []
+    for candidate in tried[1:]:
+        candidate_geom = apply_geom(src_geom, candidate["matrix"])
+        iou = candidate_geom.intersection(ref_geom).area / candidate_geom.union(ref_geom).area
+        shift = float(np.median(np.linalg.norm(
+            apply_points(corners, candidate["matrix"]) -
+            apply_points(corners, best["matrix"]), axis=1)))
+        if iou >= 0.95 and best_iou - iou <= 0.01 and shift > 0.01 * radius:
+            best["plausible_alternatives"].append({"iou": float(iou),
+                "fit_score_m": candidate["fit_score_m"], "corner_shift_m": shift})
     best["coarse_candidates"] = [{"score_m": x[0], "reflection": x[1],
                                   "rotation_deg": x[2]} for x in ranked]
     return best
@@ -311,17 +404,38 @@ def register(page_units, reference, scope, config):
         if len(reverse) < 10:
             raise ReviewRegistration("too few reverse matches on shared arc")
     metrics = _distance_summary(forward, reverse)
+    radius = math.sqrt(ref_geom.area / math.pi)
     if scope == "same_extent":
         metrics["symmetric_difference_km2"] = float(
             transformed.symmetric_difference(ref_geom).area / 1e6)
         metrics["iou"] = float(transformed.intersection(ref_geom).area /
                                transformed.union(ref_geom).area)
+        spacing = min(max(25, max(transformed.boundary.length,
+                                  ref_geom.boundary.length) / 2500),
+                      0.002 * radius)
+        full_source, source_weights = sample_exteriors(transformed, spacing)
+        full_reference, reference_weights = sample_exteriors(ref_geom, spacing)
+        metrics["full_p90_m"] = weighted_p90(
+            cKDTree(full_reference).query(full_source)[0], source_weights)
+        metrics["full_reverse_p90_m"] = weighted_p90(
+            cKDTree(full_source).query(full_reference)[0], reference_weights)
     else:
         metrics["shared_arc_km"] = chosen["section_length_m"] / 1000
         metrics["shared_fraction"] = chosen["section_fraction"]
         metrics["unconstrained_fraction"] = 1 - chosen["section_fraction"]
+    gate = {"status": "pass", "reasons": [], "iou_min": 0.95,
+            "full_p90_max_m": 0.01 * radius}
+    if scope == "same_extent":
+        if metrics["iou"] < gate["iou_min"]:
+            gate["reasons"].append("full-area IoU below 0.95")
+        if max(metrics["full_p90_m"], metrics["full_reverse_p90_m"]) > gate["full_p90_max_m"]:
+            gate["reasons"].append("full-outline bidirectional P90 exceeds 1% equivalent radius")
+        if chosen["plausible_alternatives"]:
+            gate["reasons"].append("multiple distinct credible transforms")
+    if gate["reasons"]:
+        gate["status"] = "review"
     return {"matrix": matrix, "model": chosen["model"], "fit_crs": str(reference["fit_crs"]),
             "output_crs": str(reference["output_crs"]), "stats": scale_stats(matrix),
-            "metrics": metrics, "history": chosen["history"],
+            "metrics": metrics, "gate": gate, "history": chosen["history"],
             "selection": {k: v for k, v in chosen.items()
                           if k not in {"matrix", "history", "source_samples", "section_indices"}}}

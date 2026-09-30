@@ -9,7 +9,7 @@ from pathlib import Path
 import geopandas as gpd
 import pyogrio
 import fitz
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from extract import ReviewExtraction, extract  # noqa: E402
@@ -124,14 +124,20 @@ class GeneralizedWorkflowTest(unittest.TestCase):
     def test_country_outline_with_unlabelled_internal_units(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            right = ("newpath 100 40 moveto 180 40 lineto 180 100 lineto "
+                     "160 100 lineto 160 160 lineto 100 160 lineto closepath ")
             source = eps(root, "0 0 0 setrgbcolor 1 setlinewidth\n" +
-                         LEFT + "stroke\n" + RIGHT + "stroke")
+                         LEFT + "stroke\n" + right + "stroke")
             reference = root / "country.gpkg"
-            gpd.GeoDataFrame({"id": [1]}, geometry=[box(1200, 2400, 2800, 3600)],
+            outline = Polygon([(1200, 2400), (2800, 2400), (2800, 3000),
+                               (2600, 3000), (2600, 3600), (1200, 3600)])
+            gpd.GeoDataFrame({"id": [1]}, geometry=[outline],
                              crs="EPSG:32649").to_file(reference, layer="boundary", driver="GPKG")
             config = {"source_map": str(source), "reference_boundary": str(reference),
                       "reference_layer": "boundary", "admin_level": "city",
-                      "source_scope": "same_extent", "work_dir": str(root / "work"),
+                      "source_scope": "same_extent",
+                      "scope_confirmation": "用户确认图面与参考同范围",
+                      "work_dir": str(root / "work"),
                       "output_dir": str(root / "output"), "reference": {"fit_crs": "EPSG:32649"},
                       "delivery": {"mode": "R"}, "names": {"mode": "auto"},
                       "extraction": {"method": "auto", "min_fill_area_pt2": 20}}
@@ -143,11 +149,29 @@ class GeneralizedWorkflowTest(unittest.TestCase):
             self.assertEqual(len(delivered), 2)
             self.assertTrue(delivered.admin_name.isna().all())
             qc = json.loads((root / "output" / "qc.json").read_text(encoding="utf-8"))
+            self.assertEqual(qc["registration"]["gate"]["status"], "pass")
+            self.assertEqual(qc["decision"]["reference"]["crs"], "EPSG:32649")
+            self.assertEqual(qc["extraction"]["boundary_source"], "stroke")
             self.assertEqual(qc["names"]["status"], "no_labels_found")
             self.assertIn("未发现图面名称", qc["names"]["message"])
             self.assertNotIn("map_labels", pyogrio.list_layers(
                 root / "output" / "registered.gpkg")[:, 0])
             self.assertEqual(run(config), 0)  # verified delivery cache
+            config["delivery"]["mode"] = "C"
+            config["output_dir"] = str(root / "conformed_output")
+            self.assertEqual(run(config), 0)
+            self.assertTrue((root / "conformed_output" / "conformed.gpkg").is_file())
+            config["delivery"]["mode"] = "R"
+            config["names"]["mode"] = "required"
+            config["output_dir"] = str(root / "required_output")
+            self.assertEqual(run(config), 2)
+            self.assertFalse((root / "required_output").exists())
+            review = json.loads((root / "work" / "review_names.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(len(review["unresolved"]), 2)
+            self.assertTrue(all(Path(row["crop"]).is_file() for row in review["unresolved"]))
+            self.assertEqual(json.loads((root / "work" / "review.json").read_text(
+                encoding="utf-8"))["status"], "REVIEW_NAMES")
 
 
 if __name__ == "__main__":

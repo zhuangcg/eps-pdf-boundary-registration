@@ -16,9 +16,16 @@ from shapely.ops import unary_union
 from register import apply_geom, parts
 
 
+class ReviewConformance(ValueError):
+    """Mode C cannot assign reference-only area without a clear sheet edge."""
+
+
 DEFAULT_FILES = {"registered_gpkg": "registered.gpkg", "qc_json": "qc.json",
                  "overlay_png": "overlay.png", "run_log": "run.log"}
 DEFAULT_C = {"conformed_gpkg": "conformed.gpkg", "conformance_qc_json": "conformance_qc.json"}
+AREA_TOLERANCE_M2 = 1e-3
+AREA_SUM_TOLERANCE_M2 = 1e-2
+SEAM_DRIFT_TOLERANCE_M = 1.0
 
 
 def filenames(config):
@@ -68,14 +75,15 @@ def _conform(units_fit, reference, output_crs, out, paths):
     added_rows = []
     for piece in _pieces(uncovered):
         shared = [piece.boundary.intersection(g.boundary).length for g in clipped]
-        if max(shared) >= 0.5:
-            ix = int(np.argmax(shared))
-            evidence = ("reference_outline_not_on_sheet"
-                        if piece.boundary.intersection(ref.boundary).length >= 1
-                        else "drawing_seam_closure")
-        else:
-            ix = int(np.argmin([piece.distance(g) for g in clipped]))
-            evidence = "no_drawing_contact_nearest_unit"
+        ranked = sorted(shared, reverse=True)
+        if not ranked or ranked[0] < 0.5 or (len(ranked) > 1 and
+                                             ranked[1] >= 0.99 * ranked[0]):
+            raise ReviewConformance(
+                "Mode C reference-only area has no unique sheet-supported owner")
+        ix = int(np.argmax(shared))
+        evidence = ("reference_outline_not_on_sheet"
+                    if piece.boundary.intersection(ref.boundary).length >= 1
+                    else "drawing_seam_closure")
         owners[ids[ix]].append(piece)
         added_rows.append({"admin_id": ids[ix], "evidence_class": evidence,
                            "area_km2": piece.area / 1e6, "geometry": piece})
@@ -100,13 +108,13 @@ def _conform(units_fit, reference, output_crs, out, paths):
         "internal_seam_drift_m": drift,
         "invalid_geometries": sum(not g.is_valid for g in final),
     }
-    passed = (all(abs(checks[k]) <= 1e-3 for k in
+    passed = (all(abs(checks[k]) <= AREA_TOLERANCE_M2 for k in
                   ("symmetric_difference_m2", "outside_m2", "uncovered_m2",
                    "pairwise_overlap_m2")) and
-              abs(checks["area_sum_difference_m2"]) <= 1e-2 and
-              drift < 1 and checks["invalid_geometries"] == 0)
+              abs(checks["area_sum_difference_m2"]) <= AREA_SUM_TOLERANCE_M2 and
+              drift < SEAM_DRIFT_TOLERANCE_M and checks["invalid_geometries"] == 0)
     if not passed:
-        raise ValueError(f"Mode C geometric assertions failed: {checks}")
+        raise ReviewConformance(f"Mode C geometric assertions failed: {checks}")
     conform = units_fit.copy()
     conform["geometry"] = final
     conform["area_km2"] = [g.area / 1e6 for g in final]
@@ -164,17 +172,23 @@ def write(config, page_units, label_points, name_qc, extraction, scope, registra
         raise ValueError("scale identity or output geometry validity failed")
     qc = {
         "fingerprint": fingerprint, "created_utc": datetime.now(timezone.utc).isoformat(),
-        "inputs": {"source_map": str(config["source_map"]), "source_sha256": source_hash,
+        "inputs": {"source_map": str(config["source_map"]),
+                   "source_page": config.get("source_page", 1),
+                   "source_sha256": source_hash,
                    "reference_boundary": str(config["reference_boundary"]),
                    "reference_sha256": reference_hash},
         "decision": scope, "extraction": {"method": extraction["method"],
                                           "admin_units": extraction["admin_units"],
                                           "bridges": extraction["bridges"],
-                                          "overlap_area_pt2": extraction["overlap_area_pt2"]},
+                                          "overlap_area_pt2": extraction["overlap_area_pt2"],
+                                          "boundary_source": extraction["boundary_source"],
+                                          "excluded_band_drawings": extraction["excluded_band_drawings"],
+                                          "inner_edge_drawing": extraction["inner_edge_drawing"]},
         "names": name_qc, "registration": {
             "model": registration["model"], "matrix_page_to_fit": matrix.tolist(),
             "fit_crs": registration["fit_crs"], "output_crs": registration["output_crs"],
             "scale": registration["stats"], "metrics": registration["metrics"],
+            "gate": registration["gate"],
             "selection": registration["selection"],
             "iterations": len(registration["history"])},
         "validation": {"scale_identity": scale_check,
@@ -197,6 +211,7 @@ def write(config, page_units, label_points, name_qc, extraction, scope, registra
     lines = [
         "## EPS registration run",
         f"- Source: {config['source_map']}",
+        f"- Source page: {config.get('source_page', 1)}",
         f"- Reference: {config['reference_boundary']}",
         f"- Level: {scope['admin_level']} ({scope['evidence']['admin_level']})",
         f"- Relationship: {scope['source_scope']} ({scope['evidence']['source_scope']})",

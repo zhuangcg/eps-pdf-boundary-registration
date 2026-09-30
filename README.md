@@ -20,9 +20,15 @@
 > [!CAUTION]
 > **仅用于科研制图和探索性分析。** 输出不是标准地图、标注地图原件、法定界线或测绘成果，不能替代原始地图数据。配准误差不可能为零，也不承诺达到某一精度。结果受参考边界准确性与时效、EPS 图面要素复杂程度、制图概化、可用共同边界长度和人工复核质量影响。参考外边界不能独立验证内部行政区界。每次使用都应检查 `qc.json` 和 `overlay.png`，并遵守源地图与参考数据的使用许可。
 
+> [!IMPORTANT]
+> **运行前先核实两份输入。** 源 EPS/PDF 没有地理 CRS；参考 SHP/GPKG 必须是目标区域、具有可信 CRS 的边界。不能用两份原始 bbox 求交来证明同范围，也不能用同名地区或用户确认代替拟合后的几何复验。证据不足会进入 `REVIEW_*`，此时不交付最终 GPKG。
+
+> [!WARNING]
+> **批量预览、空名和 Mode C 补面都需按状态解释。** `batch_preview.gpkg` 只代表已处理城市；`REGISTERED_REVIEW_NAMES` 表示几何已配准但名称未核准；Mode C 新增参考面积没有源图证据。不要把这些产物描述成完整、已核名的省级成果。
+
 ## ✨ 项目做什么
 
-本项目专门面向**从天地图获取、没有坐标系的行政区划 EPS 图**：提取图中的区划面，使用用户提供的可信边界数据进行空间配准，再输出 GeoPackage 和质量检查图件。
+本项目面向**无坐标系的行政区划矢量 EPS/PDF 图**，以天地图 EPS 为主要案例：提取图中的区划面，使用用户提供的可信边界数据进行空间配准，再输出 GeoPackage 和质量检查图件。矢量 PDF 可指定 `source_page`；扫描件不适用。
 
 主要流程是一张图纸、一份参考边界、一个全局变换。工具不会直接把参考数据的 CRS 赋给 EPS 页面坐标；没有足够共同边界或其他定位依据时会停止并提示复核。
 
@@ -31,7 +37,9 @@
 - 🧭 **聚焦天地图** — 项目名称、默认配置和案例都围绕天地图行政区划 EPS。
 - ✂️ **提取区划矢量** — 读取 EPS 的填充面或边界线，保留可核查的图面几何。
 - 📍 **按参考边界定位** — 支持整幅同范围配准，或使用经过核实的共同边界弧段。
+- 🧩 **按需批量合并** — 显式 manifest 可逐城市处理 EPS/PDF，并在全局 QC 后合并。
 - 📦 **交付可检查结果** — 输出行政区面、参考与配准边界、QC 指标和叠加图。
+- 🛑 **证据不足即复核** — 范围、色带内缘、同色离岛、必要名称、配准多解和 Mode C 补面归属各有暂停状态；暂停时不留下部分交付。
 
 ## 🎯 适用范围
 
@@ -53,6 +61,8 @@
 | 参考边界 | 与地图属于**同一城市或目标区域**、带有正确空间坐标系的 `.shp` 或 `.gpkg` | 必须能提供地理定位依据；优先选与图面同范围、行政级别相符的边界。Shapefile 的 `.shp/.shx/.dbf/.prj` 需一并保留；GeoPackage 的坐标系应已正确写入 |
 
 `reference_boundary` 填第二类数据的路径。GeoPackage 含多个图层时，再填写 `reference_layer`。两份数据不必使用相同 CRS，程序会以参考数据 CRS 交付；但参考 CRS 必须已知且正确。局部地图只有在与参考数据存在经核实的共同边界弧段或其他可靠定位依据时才能配准；“同一城市”本身不足以定位没有共同边界的内陆图。不要把无坐标 EPS 的页面坐标直接指定为参考数据的 CRS。
+
+程序会列出参考图层、要素组成和范围，并提供图面与参考对照图。源图没有 CRS，无法预先按坐标 bbox 判断相交；范围不清会暂停，请用户确认。若 PDF/EPS 用有宽度的填充面绘制边界，先核对行政填色，只取目标填色面的内侧边界并排除色带；没有唯一内缘时暂停。同色小岛有多个可能归属面时也不会按距离猜测。拟合后还须通过完整范围 IoU、双向残差和变换唯一性检查，未通过不会交付 GPKG。要求名称齐全时，未解决面可通过裁片复核；Mode C 补面归属不唯一时停止。
 
 ## 🚀 快速开始
 
@@ -105,25 +115,47 @@ Copy-Item "$skillRoot\templates\config.example.yaml" runs/my-case.yaml
 编辑 `runs/my-case.yaml`，至少填写：
 
 ```yaml
-source_map: "D:/maps/tianditu-districts.eps"
-reference_boundary: "D:/gis/same-area-reference.gpkg"
-reference_layer: boundaries # only for a GeoPackage with multiple layers
+source_map: "D:/maps/shenzhen-districts.eps"
+reference_boundary: "D:/gis/shenzhen-boundary.gpkg"
+reference_layer: null # GPKG 有多个空间图层时填写实际图层名
 admin_level: district
 source_scope: same_extent
+user_intent: "提取深圳市区级边界；图面与深圳市参考边界同范围"
 output_dir: "runs/my-case/output"
 work_dir: "runs/my-case/work"
 ```
 
-`reference_boundary` 必须是同一城市或目标区域、已定义正确 CRS 的 `.shp` 或 `.gpkg`。`reference_layer` 仅在 GeoPackage 含多个图层时填写。`same_extent` 用于源图与参考边界同范围；局部图仅在有经核实的共同边界弧段时使用 `shared_boundary`。二者都不满足时，流程会停止，不会把内陆图强行贴到上级边界。
+示例路径和意图仅作格式演示，实际运行时须替换成用户的数据与真实目标。`reference_boundary` 必须是同一城市或目标区域、已定义正确 CRS 的 `.shp` 或 `.gpkg`。`same_extent` 用于源图与参考边界同范围；局部图仅在有经核实的共同边界弧段时使用 `shared_boundary`。`scope_confirmation` 只记录用户已明确确认的范围，不能由 Agent 根据文件名自行填写。二者都不满足时，流程会停止，不会把内陆图强行贴到上级边界。
+
+如果图上次要街道文字与目标区级填色面的级别判断冲突，先核查填色与标注；确有依据时可在 `scope_review.admin_level_conflict` 记录判断。此字段只解释级别冲突，不能替代用户的范围确认。
 
 ### 5. 检查输入并运行
 
 ```powershell
 $skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
 & ".\.venv\Scripts\python.exe" "$skillRoot\scripts\inspect_environment.py" --config runs/my-case.yaml
-& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml --intent "提取区级边界；图面范围与参考区界相同"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml
+# 仅在 run.py 返回交付成功后执行：
 & ".\.venv\Scripts\python.exe" "$skillRoot\scripts\check_output_manifest.py" runs/my-case/output --config runs/my-case.yaml
 ```
+
+只有 `run.py` 成功交付后才执行最后一行；进入复核状态时先处理 `work/review.json`。`--intent` 只适用于单图，且应传用户真实表述；批量配置请使用 manifest 的 `defaults` 和各 case 的 `options`。
+
+## 🧭 Agent 调用与复核约定
+
+Agent 应从当前安装的 `SKILL.md` 定位脚本，以用户实际请求选择模式：单图用 `config.example.yaml`；**仅在明确要求多城市提取合并时**用 `batch.example.yaml`。先看预览和参考元数据，再按 `##VERDICT` 决定后续动作；已有的用户确认直接记录，不重复询问。遇到证据冲突时暂停，不能靠改标签、降低门槛或换一个形似轮廓来制造通过结果。
+
+| 状态 | 处理方式 |
+|---|---|
+| `REVIEW_SCOPE` / `NO_COMMON_BOUNDARY` | 看范围对照图和参考图层；证据仍不足时请用户确认或提供有定位依据的参考。 |
+| `REVIEW_EXTRACTION` | 核对源图、候选图和颜色/描边；色带无唯一内缘、离岛归属不明时保持暂停。 |
+| `REVIEW_NAMES` | 看 `work/review_names.json` 及裁片，只录入有图面证据的名称。 |
+| `REVIEW_REGISTRATION` | 核对完整范围 IoU、双向 P90 与多解叠加图；用户确认地区也不能绕过几何复验。 |
+| `REVIEW_CONFORMANCE` | 核查 Mode C 补面归属；没有唯一图面依据时不发布 Mode C。 |
+| `REGISTERED_REVIEW_NAMES` | GPKG 已交付，但名称不完整；按 `qc.json` 报告空名面，不能称为已核名成果。 |
+
+> [!NOTE]
+> **自动放行数值仅控制交付，不是精度保证。** 同范围模式暂以 IoU ≥ 0.95、完整边界双向 P90 均不超过参考面积等效半径的 1%、且变换唯一作为自动交付条件。实际使用仍须查看 `overlay.png`、名称状态、内部区界和参考数据质量。
 
 ## 🖼️ 案例预览
 
@@ -144,6 +176,13 @@ $skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
 | `run.log` | 本次运行摘要 |
 
 默认交付保留源图提取几何。只有确认源图与参考边界完全同范围、并确实需要外轮廓吻合时，才考虑高级 Mode C；该模式会新增没有源图证据的面积，详见[方法说明](references/methodology.md)。
+
+## 🧩 多城市批量合并
+
+用户明确要求多个城市提取并合并时，从 `templates/batch.example.yaml` 建立一份 manifest：统一市级参考图层，每张 EPS/PDF 指定 `parent_id` 和可选页码，通用参数写入 `defaults`，个别城市的复核参数写入 `options`。执行 `python scripts/run.py --config <batch.yaml>`。每个城市保留 Mode R 的 `registered.gpkg` 和 Mode C 的 `conformed.gpkg`；`province_qc.json` 与 `city_adjacency_qc.csv` 检查覆盖、重叠和相邻城市公共边界。只有参考图层全部城市通过单图及全局 QC 才发布 `province_conformed.gpkg`；只处理部分城市时输出 `batch_preview.gpkg`。详见[批量操作说明](references/batch-hierarchical.md)。
+
+> [!WARNING]
+> **`parent_id` 不是范围已确认的证据。** 每城仍需核对源图与参考；只在用户明确确认该城同范围时，才把原答复写入该 case 的 `options.scope_confirmation`。任一城市停在复核状态时，先看 `work/batch_review.json` 和该城 `work/<parent_id>/review.json`，不要发布省级合并成果。部分城市通过得到的 `batch_preview.gpkg` 不能称为全省成果。
 
 ## 🛡️ 准确性与使用限制
 

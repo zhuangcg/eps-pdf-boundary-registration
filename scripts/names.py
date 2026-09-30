@@ -14,9 +14,14 @@ import geopandas as gpd
 from shapely.geometry import Point
 
 
+class ReviewNames(ValueError):
+    """Required map names are incomplete; review evidence before delivery."""
+
+
 def _label_key(census, dpi, frame):
     geometry = hashlib.sha256(b"".join(g.wkb for g in frame.geometry)).hexdigest()[:12]
-    raw = f"{census['stamp']['pdf_sha256']}:{dpi}:{geometry}:rapidocr-subprocess-v3"
+    raw = (f"{census['stamp']['pdf_sha256']}:{census['page_index']}:"
+           f"{dpi}:{geometry}:rapidocr-subprocess-v3")
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
@@ -30,7 +35,7 @@ def scan(census: dict, config: dict, frame: gpd.GeoDataFrame) -> dict:
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
     with fitz.open(census["pdf"]) as doc:
-        page = doc[0]
+        page = doc[census["page_index"]]
         words = page.get_text("words")
         native = [{"raw_text": str(w[4]), "confidence": 1.0, "source": "native_text",
                    "page_box": [float(w[0]), float(w[1]), float(w[2]), float(w[3])],
@@ -48,7 +53,7 @@ def scan(census: dict, config: dict, frame: gpd.GeoDataFrame) -> dict:
                       "source_sha256": census["stamp"]["pdf_sha256"]}
         else:
             command = [sys.executable, str(Path(__file__).with_name("ocr_page.py")),
-                       str(census["pdf"]), str(dpi)]
+                       str(census["pdf"]), str(dpi), str(census["page_index"])]
             attempt = subprocess.run(command, capture_output=True, text=True,
                                      encoding="utf-8", errors="replace")
             if attempt.returncode:
@@ -75,13 +80,14 @@ def _candidate(text: str, level: str) -> bool:
     return bool(re.fullmatch(patterns.get(level, r"(?!)"), text))
 
 
-def _crop(pdf: Path, work: Path, admin_id: str, point: tuple[float, float], box=None) -> Path:
+def _crop(pdf: Path, work: Path, admin_id: str, point: tuple[float, float],
+          box=None, page_index: int = 0) -> Path:
     folder = work / "name_crops"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{admin_id}.png"
+    path = folder / f"page_{page_index + 1}_{admin_id}.png"
     if not path.is_file():
         with fitz.open(pdf) as doc:
-            page = doc[0]
+            page = doc[page_index]
             x, y = point
             clip = (fitz.Rect(box) if box else fitz.Rect(x - 45, y - 22, x + 45, y + 22)) & page.rect
             page.get_pixmap(dpi=250, clip=clip, alpha=False).save(path)
@@ -94,8 +100,6 @@ def attach(frame: gpd.GeoDataFrame, scan_result: dict, config: dict, census: dic
     frame = frame.copy()
     labels = scan_result["labels"]
     reviewed = config.get("names", {}).get("reviewed_labels", [])
-    if config.get("names", {}).get("mode", "auto") == "required" and not (labels or reviewed):
-        raise ValueError("names.mode=required but the page contains no readable labels")
     assigned: dict[str, list[dict]] = defaultdict(list)
     for row in labels:
         if not _candidate(row["raw_text"], admin_level):
@@ -117,7 +121,7 @@ def attach(frame: gpd.GeoDataFrame, scan_result: dict, config: dict, census: dic
             raise ValueError("reviewed_labels require name, page_pt and evidence")
         review_by_id[admin_id] = {**row, "crop": str(_crop(
             Path(census["pdf"]), Path(config["work_dir"]), admin_id, point,
-            row.get("crop_box_pt")))}
+            row.get("crop_box_pt"), census["page_index"]))}
     name_rows, label_rows = [], []
     for _, feature in frame.iterrows():
         admin_id = str(feature.admin_id)
@@ -159,5 +163,25 @@ def attach(frame: gpd.GeoDataFrame, scan_result: dict, config: dict, census: dic
     elif qc["status"] == "not_checked":
         qc["message"] = "OCR 未完成，图面名称尚未核查 / map names not checked"
     if config.get("names", {}).get("mode", "auto") == "required" and named != len(frame):
-        raise ValueError(f"names.mode=required: only {named}/{len(frame)} map-backed names")
+        work = Path(config["work_dir"])
+        source_key = census["stamp"]["pdf_sha256"][:8]
+        unresolved = []
+        for _, feature in frame.loc[frame.admin_name.isna()].iterrows():
+            geom = feature.geometry
+            bounds = [geom.bounds[0] - 8, geom.bounds[1] - 8,
+                      geom.bounds[2] + 8, geom.bounds[3] + 8]
+            nearby = [row for row in labels if
+                      bounds[0] <= row["page_x_pt"] <= bounds[2] and
+                      bounds[1] <= row["page_y_pt"] <= bounds[3]]
+            crop = _crop(Path(census["pdf"]), work,
+                         f"review_{source_key}_{feature.admin_id}",
+                         tuple(geom.representative_point().coords[0]), bounds,
+                         census["page_index"])
+            unresolved.append({"admin_id": feature.admin_id, "crop": str(crop),
+                               "nearby_labels": nearby})
+        path = work / "review_names.json"
+        path.write_text(json.dumps({"names": qc, "unresolved": unresolved},
+                                   ensure_ascii=False, indent=2), encoding="utf-8")
+        raise ReviewNames(f"names.mode=required: only {named}/{len(frame)} map-backed names; "
+                          f"inspect {path}")
     return frame, label_frame, qc

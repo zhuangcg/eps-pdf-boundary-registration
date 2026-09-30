@@ -2,31 +2,37 @@
 # 复制后填写路径。级别、关系、提取方法和名称模式默认为 auto。
 # No source-specific fill palette or expected polygon count belongs in a generic default.
 source_map: "path/to/map.eps"           # EPS or vector PDF
+source_page: 1                           # 1-based PDF page; default 1
 reference_boundary: "path/to/reference.gpkg"
 reference_layer: null                    # omit or set when GPKG has multiple layers
 admin_level: auto                        # auto | street | district | city | province | country
 source_scope: auto                       # auto | same_extent | shared_boundary | no_common_boundary
 user_intent: ""                          # optional explicit task statement
+scope_confirmation: null                 # record an explicit user answer from the request or REVIEW_SCOPE
+scope_review: {}                         # optional: admin_level_conflict: "reviewed fill faces are districts; street text is secondary"
 output_dir: "runs/new-case/output"
 work_dir: "runs/new-case/work"
 
 extraction:
   method: auto                           # auto | fill | line
   bezier_tolerance_pt: 0.05
-  min_fill_area_pt2: null                # optional per-sheet filter
+  min_fill_area_pt2: null                # optional per-sheet filter; ambiguous small islands pause
   expected_admin_polygon_count: null    # optional validation
   keep_colours_rgb: null                 # optional reviewed RGB triples, e.g. [[220,233,174]]
+                                         # exclude filled boundary ribbons; use the target fill's inner edge
   split_colours_rgb: []                  # optional reviewed colours reused across units
   keep_strokes: null                     # optional [{rgb: [0,0,0], width_pt: 1.0, dashes: ""}]
   snap_tolerance_pt: null                # default: no gap bridging; page points when explicitly set
 
 names:
-  mode: auto                             # auto permits blank names; required gates delivery
+  mode: auto                             # auto permits blank names; required yields REVIEW_NAMES with crops
   outlined_text_ocr_dpi: 300
   reviewed_labels: []                    # map-backed crop review only; never geographic guesses
 
 reference:
   fit_crs: null                          # true-metre projected CRS; auto picks local fit CRS
+  # filter: {field: adcode, value: "440100"}  # select one city before union
+  # id_field: adcode                    # required if filter selects split features
 
 landmarks: []                            # shared arc seeds: two {page_pt: [x,y], lonlat: [lon,lat], source: "..."}
 delivery:

@@ -14,9 +14,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
     ap.add_argument("dpi", type=int)
+    ap.add_argument("page_index", type=int, nargs="?", default=0)
     args = ap.parse_args()
     with fitz.open(args.pdf) as doc:
-        pix = doc[0].get_pixmap(dpi=args.dpi, alpha=False)
+        pix = doc[args.page_index].get_pixmap(dpi=args.dpi, alpha=False)
         image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
         found, _ = RapidOCR()(image)
     zoom = args.dpi / 72.0

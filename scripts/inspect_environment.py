@@ -43,8 +43,24 @@ if a.config:
 
     config = yaml.safe_load(a.config.read_text(encoding="utf-8"))
     errors = []
+    if config.get("workflow", {}).get("mode") == "batch_hierarchical":
+        from batch import _load_manifest
+        try:
+            _load_manifest(config, a.config.resolve().parent)
+        except (OSError, ValueError) as exc:
+            errors.append(str(exc))
+        print("\nBatch configuration:", "PASS" if not errors else "FAIL")
+        for error in errors:
+            print("  " + error)
+        if errors or any(find_spec(name) is None for name in REQUIRED_PACKAGES):
+            sys.exit(1)
+        sys.exit(0)
     scope = config.get("source_scope")
-    mode = config.get("delivery", {}).get("mode")
+    mode = config.get("delivery", {}).get("mode", "R")
+    if config.get("admin_level", "auto") not in {
+        "auto", "street", "district", "city", "province", "country"
+    }:
+        errors.append("admin_level must be auto, street, district, city, province, or country")
     if scope not in {None, "auto", "same_extent", "partial_parent", "shared_boundary", "no_common_boundary"}:
         errors.append("source_scope must be auto, same_extent, shared_boundary, or no_common_boundary")
     if mode not in {"R", "C"}:

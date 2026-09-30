@@ -59,8 +59,17 @@ def _rgb(rows, field):
 
 
 def _filled_geometry(rings):
-    polys = [Polygon(r) for r in rings]
-    if not polys or any(p.is_empty or not p.is_valid for p in polys):
+    polys = []
+    for ring in rings:
+        poly = Polygon(ring)
+        if not poly.is_valid:
+            fixed = poly.buffer(0)
+            if (not isinstance(fixed, Polygon) or not fixed.is_valid or
+                abs(fixed.area - poly.area) > max(1e-8, 1e-8 * poly.area)):
+                raise ValueError("invalid filled ring cannot be repaired without changing area")
+            poly = fixed
+        polys.append(poly)
+    if not polys or any(p.is_empty for p in polys):
         raise ValueError("invalid or empty filled ring")
     order = sorted(range(len(polys)), key=lambda i: -polys[i].area)
     parents, depths = {}, {}
@@ -73,8 +82,8 @@ def _filled_geometry(rings):
     for i in order:
         if depths[i] % 2:
             continue
-        holes = [rings[j] for j in order if parents[j] == i and depths[j] % 2]
-        geom = Polygon(rings[i], holes)
+        holes = [polys[j].exterior.coords for j in order if parents[j] == i and depths[j] % 2]
+        geom = Polygon(polys[i].exterior.coords, holes)
         if not geom.is_valid:
             raise ValueError("invalid shell/hole hierarchy")
         shells.append(geom)
@@ -83,30 +92,41 @@ def _filled_geometry(rings):
 
 def _fill_units(drawings, keep, split, min_area, tol, page_area):
     by_colour = defaultdict(list)
-    rejected = []
+    rejected, bands = [], []
     for idx, drawing in enumerate(drawings):
         fill = drawing.get("fill")
         if fill is None:
             continue
         rgb = tuple(round(255 * x) for x in fill[:3])
-        if keep is not None and rgb not in keep:
-            rejected.append({"drawing": idx, "rgb": rgb, "reason": "unselected fill"})
-            continue
         rings = closed_rings(drawing["items"], tol)
         area = sum(abs(signed_area(ring)) for ring in rings)
-        if area < min_area or (keep is None and area > 0.85 * page_area):
+        if area < min_area:
             rejected.append({"drawing": idx, "rgb": rgb, "area_pt2": area,
-                             "reason": "below area threshold or page background"})
+                             "reason": "below area threshold"})
             continue
         try:
             geom = _filled_geometry(rings)
         except ValueError as exc:
-            if keep is not None:
-                raise ValueError(f"drawing {idx} in selected fill {rgb}: {exc}") from exc
+            if keep is not None and rgb in keep:
+                raise ReviewExtraction(f"drawing {idx} in selected fill {rgb}: {exc}") from exc
             rejected.append({"drawing": idx, "rgb": rgb, "reason": str(exc)})
             continue
+        if geom.area < min_area or (keep is None and geom.area > 0.85 * page_area):
+            rejected.append({"drawing": idx, "rgb": rgb, "area_pt2": float(geom.area),
+                             "reason": "below area threshold or page background"})
+            continue
+        solidity = geom.area / geom.convex_hull.area
+        if geom.area >= max(100, 0.002 * page_area) and solidity < 0.1:
+            bands.append({"drawing": idx, "rgb": rgb, "geometry": geom,
+                          "solidity": float(solidity)})
+            rejected.append({"drawing": idx, "rgb": rgb, "reason": "boundary band candidate",
+                             "solidity": float(solidity)})
+            continue
+        if keep is not None and rgb not in keep:
+            rejected.append({"drawing": idx, "rgb": rgb, "reason": "unselected fill"})
+            continue
         by_colour[rgb].append((idx, geom))
-    if keep is not None and set(by_colour) != keep:
+    if keep is not None and set(by_colour) | {b["rgb"] for b in bands if b["rgb"] in keep} != keep:
         raise ReviewExtraction(f"selected fills missing polygons: {sorted(keep - set(by_colour))}")
     records = []
     for rgb, members in sorted(by_colour.items()):
@@ -129,10 +149,13 @@ def _fill_units(drawings, keep, split, min_area, tol, page_area):
             small = [p for p in parts if p.area < min_area]
             if keep is not None and rgb in split and len(large) < 2:
                 raise ReviewExtraction(f"split fill {rgb} has fewer than two substantial parts")
+            if small and len(large) > 1:
+                raise ReviewExtraction(
+                    f"small islands in fill {rgb} have multiple possible parent units; "
+                    "review the source drawings instead of assigning by distance")
             for piece in small:
                 if large:
-                    nearest = min(range(len(large)), key=lambda j: large[j].distance(piece))
-                    large[nearest] = large[nearest].union(piece)
+                    large[0] = large[0].union(piece)
             units = large
         else:
             units = [merged]
@@ -141,7 +164,7 @@ def _fill_units(drawings, keep, split, min_area, tol, page_area):
                             "source_drawings": ",".join(str(i) for i, geom in members
                                                         if geom.intersection(unit).area > 0),
                             "area_pt2": float(unit.area), "geometry": unit})
-    return records, rejected, sum(len(v) for v in by_colour.values())
+    return records, rejected, sum(len(v) for v in by_colour.values()), bands
 
 
 def _style(drawing):
@@ -223,7 +246,7 @@ def extract(config: dict) -> dict:
         raise ValueError("split_colours_rgb must be in keep_colours_rgb")
     work = Path(config["work_dir"])
     tol = float(extraction.get("bezier_tolerance_pt", 0.05))
-    census = inspect(Path(config["source_map"]), work, tol)
+    census = inspect(Path(config["source_map"]), work, tol, config.get("source_page", 1))
     min_area = float(extraction.get("min_fill_area_pt2") or
                      max(20.0, census["page_pt"][0] * census["page_pt"][1] * 0.001))
     expected = extraction.get("expected_admin_polygon_count")
@@ -231,7 +254,8 @@ def extract(config: dict) -> dict:
     if tol <= 0 or min_area <= 0 or snap < 0:
         raise ValueError("flatten/area thresholds must be positive; snap tolerance nonnegative")
     stroke_rules = extraction.get("keep_strokes")
-    stamp = {"version": 2, "pdf_sha256": census["stamp"]["pdf_sha256"],
+    stamp = {"version": 4, "pdf_sha256": census["stamp"]["pdf_sha256"],
+             "page_index": census["page_index"],
              "method": method, "keep_colours_rgb": sorted(map(list, keep)) if keep is not None else None,
              "split_colours_rgb": sorted(map(list, split)), "keep_strokes": stroke_rules,
              "min_fill_area_pt2": min_area, "expected_admin_polygon_count": expected,
@@ -246,11 +270,27 @@ def extract(config: dict) -> dict:
     if stage.exists() and any(stage.iterdir()):
         raise FileExistsError(f"incomplete extraction at {stage}; inspect it before retrying")
     with fitz.open(census["pdf"]) as doc:
-        drawings = doc[0].get_drawings()
+        drawings = doc[census["page_index"]].get_drawings()
     page_area = census["page_pt"][0] * census["page_pt"][1]
     fill_result = None
     if method != "line" and census["filled_drawings"]:
         fill_result = _fill_units(drawings, keep, split, min_area, tol, page_area)
+        records, rejected, accepted, bands = fill_result
+        selected_bands = [b for b in bands if keep is None or b["rgb"] in keep]
+        if selected_bands and not records and len(selected_bands) == 1:
+            band = selected_bands[0]["geometry"]
+            if isinstance(band, Polygon) and len(band.interiors) == 1:
+                inner = Polygon(band.interiors[0])
+                records.append({"source_style": "band_inner", "source_drawings":
+                                str(selected_bands[0]["drawing"]),
+                                "area_pt2": float(inner.area), "geometry": inner})
+                accepted = 1
+                fill_result = records, rejected, accepted, bands
+        if selected_bands and (not records or records[0]["source_style"] != "band_inner"):
+            preview = _candidate_preview(census, work, key,
+                                         [("fill", records), ("band", [
+                                             {"geometry": b["geometry"]} for b in selected_bands])])
+            raise ReviewExtraction(f"filled band and administrative faces need review; inspect {preview}")
     if method == "fill" and (not fill_result or not fill_result[0]):
         raise ReviewExtraction("no credible filled administrative polygons")
     line_result = None
@@ -313,7 +353,12 @@ def extract(config: dict) -> dict:
                                       "colours": census["colours"][:30]},
                                      ensure_ascii=False, indent=2), encoding="utf-8")
         raise ReviewExtraction(f"mixed fills; choose keep_colours_rgb using {review}")
-    records, rejected, accepted, bridges = (*chosen, []) if used_method == "fill" else chosen
+    if used_method == "fill":
+        records, rejected, accepted, bands = chosen
+        bridges = []
+    else:
+        records, rejected, accepted, bridges = chosen
+        bands = []
     records.sort(key=lambda row: (-row["area_pt2"], row["geometry"].bounds))
     if expected is not None and len(records) != int(expected):
         raise ReviewExtraction(f"extracted {len(records)} units, expected {expected}; review method/styles")
@@ -333,6 +378,13 @@ def extract(config: dict) -> dict:
     report = {"stamp": stamp, "method": used_method, "admin_units": len(frame),
               "accepted_drawings": accepted, "rejected_drawings": len(rejected),
               "bridges": bridges, "overlap_area_pt2": overlap,
+              "boundary_source": ("band_inner" if used_method == "fill" and
+                                  records[0]["source_style"] == "band_inner" else
+                                  "administrative_fill" if used_method == "fill" else "stroke"),
+              "excluded_band_drawings": [b["drawing"] for b in bands
+                                         if records[0]["source_style"] != "band_inner"],
+              "inner_edge_drawing": (int(records[0]["source_drawings"])
+                                     if records[0]["source_style"] == "band_inner" else None),
               "page_units_gpkg": str(gpkg_path), "reject_log": str(stage / "reject_log.json"),
               "units": frame.drop(columns="geometry").to_dict(orient="records")}
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

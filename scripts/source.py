@@ -58,11 +58,14 @@ def as_pdf(source: Path, work: Path) -> Path:
     return target
 
 
-def inspect(source: Path, work: Path, tol_pt: float = 0.05) -> dict:
+def inspect(source: Path, work: Path, tol_pt: float = 0.05, page_number: int = 1) -> dict:
+    if isinstance(page_number, bool) or not isinstance(page_number, int) or page_number < 1:
+        raise ValueError("source_page must be a positive 1-based integer")
     work.mkdir(parents=True, exist_ok=True)
     pdf = as_pdf(source, work)
     stamp = {"source_sha256": sha256(source), "pdf_sha256": sha256(pdf),
-             "flatten_tolerance_pt": tol_pt, "census_version": 2}
+             "flatten_tolerance_pt": tol_pt, "source_page": page_number,
+             "census_version": 3}
     output = work / "census.json"
     preview = work / "preview.png"
     if output.is_file() and preview.is_file():
@@ -71,9 +74,11 @@ def inspect(source: Path, work: Path, tol_pt: float = 0.05) -> dict:
             return cached
 
     with fitz.open(pdf) as doc:
-        if len(doc) != 1:
-            raise ValueError(f"expected one map page, got {len(doc)}")
-        page = doc[0]
+        if page_number > len(doc):
+            raise ValueError(f"source_page={page_number} exceeds {len(doc)} PDF pages")
+        if source.suffix.lower() == ".eps" and page_number != 1:
+            raise ValueError("EPS has one page; source_page must be 1")
+        page = doc[page_number - 1]
         drawings = page.get_drawings()
         if not drawings:
             raise ValueError("no vector drawings; use raster georeferencing instead")
@@ -119,6 +124,7 @@ def inspect(source: Path, work: Path, tol_pt: float = 0.05) -> dict:
             "strokes": sorted(strokes.values(), key=lambda row: -row["paths"]),
             "preview": str(preview),
             "pdf": str(pdf),
+            "page_index": page_number - 1,
         }
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
@@ -131,7 +137,7 @@ def main() -> int:
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     source, work = Path(config["source_map"]), Path(config["work_dir"])
     tol = config.get("extraction", {}).get("bezier_tolerance_pt", 0.05)
-    result = inspect(source, work, tol)
+    result = inspect(source, work, tol, config.get("source_page", 1))
     print(f"vector drawings={result['vector_drawings']} filled={result['filled_drawings']} "
           f"stroked={result['stroked_drawings']} "
           f"native words={result['native_words']}")

@@ -1,0 +1,24 @@
+## 多城市批量配置；路径相对于本文件所在目录
+workflow:
+  mode: batch_hierarchical
+parent_reference:
+  path: "../data/cities.gpkg"
+  layer: city
+  id_field: adcode
+  fit_crs: null                   # 可选；所有城市共用同一个米制拟合 CRS
+output_dir: "batch/output"
+work_dir: "batch/work"
+defaults:                         # 复用单图配置字段；只写所有城市共同的设置
+  names:
+    mode: auto
+  extraction:
+    method: auto
+cases:
+  - source_map: "../data/guangzhou.eps"
+    parent_id: "440100"
+    # options:                     # 可选；图面复核后覆盖当前城市的单图参数
+    #   extraction:
+    #     method: fill
+  - source_map: "../data/foshan.pdf"
+    parent_id: "440600"
+    page: 1                        # 多页 PDF 可指定；默认第 1 页

@@ -20,9 +20,15 @@
 > [!CAUTION]
 > **For research cartography and exploratory analysis only.** Outputs are not a standard map, annotated-map original, legal boundary, or surveying deliverable, and cannot replace authoritative map data. Registration error cannot be zero and no accuracy level is guaranteed. Results depend on reference-boundary accuracy and date, EPS feature complexity, cartographic generalization, shared-boundary length, and review quality. A reference outer boundary does not independently validate internal administrative boundaries. Inspect `qc.json` and `overlay.png` for each run, and follow source-data licenses.
 
+> [!IMPORTANT]
+> **Verify both inputs before running.** The source EPS/PDF has no geographic CRS; the reference SHP/GPKG must cover the target area and have a trustworthy CRS. Intersecting their raw bounding boxes cannot establish matching extent. A matching place name or scope confirmation cannot replace the post-fit geometry check. Insufficient evidence produces a `REVIEW_*` status and no final GPKG.
+
+> [!WARNING]
+> **Interpret batch previews, unresolved names, and Mode C additions explicitly.** `batch_preview.gpkg` covers only the processed cities. `REGISTERED_REVIEW_NAMES` means registration succeeded but names are not fully confirmed. Mode C adds reference area without source-sheet evidence. None of these is a complete, fully named province deliverable.
+
 ## ✨ What it does
 
-This project is designed for **CRS-free administrative EPS maps obtained from Tianditu**. It extracts administrative polygons, registers them against a trusted boundary supplied by the user, and writes a GeoPackage with QC outputs.
+This project handles **CRS-free administrative vector EPS/PDF maps**, with Tianditu EPS as the primary example. It extracts administrative polygons, registers them against a trusted boundary supplied by the user, and writes a GeoPackage with QC outputs. A vector PDF can select `source_page`; scans are outside this workflow.
 
 The core workflow uses one source sheet, one reference boundary, and one global transform. It never assigns the reference CRS directly to EPS page coordinates. If the available boundary does not provide a reliable spatial anchor, the workflow stops for review.
 
@@ -31,7 +37,9 @@ The core workflow uses one source sheet, one reference boundary, and one global 
 - 🧭 **Tianditu-focused** — the project name, examples, and defaults target Tianditu EPS maps.
 - ✂️ **Vector extraction** — reads filled faces or boundary strokes and retains reviewable geometry.
 - 📍 **Reference-based registration** — supports matching extents or a verified shared boundary arc.
+- 🧩 **Optional city batches** — an explicit manifest runs EPS/PDF maps city by city and merges them after global QC.
 - 📦 **Inspectable delivery** — writes administrative units, reference/registered outlines, QC metrics, and an overlay figure.
+- 🛑 **Evidence-gated review** — ambiguous scope, boundary bands, islands, required names, transforms, or Mode C ownership stop before partial delivery.
 
 ## 🎯 Supported scope
 
@@ -100,29 +108,53 @@ Copy-Item "$skillRoot\templates\config.example.yaml" runs/my-case.yaml
 Edit `runs/my-case.yaml` and set at least:
 
 ```yaml
-# Primary input: a CRS-free Tianditu administrative EPS (vector PDF is secondary).
-source_map: "D:/maps/tianditu-districts.eps"
+# CRS-free administrative vector EPS or PDF.
+source_map: "D:/maps/shenzhen-districts.eps"
 # Required reference: CRS-defined .shp/.gpkg for the same city or target area
 # This is separate from the source EPS/PDF and must have a known, correct CRS.
 # For Shapefile, keep .shp/.shx/.dbf/.prj sidecars together; GeoPackage embeds its CRS.
-reference_boundary: "D:/gis/same-area-reference.gpkg"
-reference_layer: boundaries # only for a multi-layer GeoPackage
+reference_boundary: "D:/gis/shenzhen-boundary.gpkg"
+reference_layer: null # set the actual layer name for a multi-layer GeoPackage
 admin_level: district
 source_scope: same_extent
+user_intent: "Extract Shenzhen districts; the sheet and city reference cover the same extent"
 output_dir: "runs/my-case/output"
 work_dir: "runs/my-case/work"
 ```
 
-Set `reference_layer` when the GeoPackage has multiple layers. Use `same_extent` when the source and reference cover the same area. Use `shared_boundary` only for a verified common boundary arc. If neither condition holds, registration stops instead of forcing an interior map onto a parent outline.
+The paths and intent above illustrate the format; replace them with the user's data and actual request. Set `reference_layer` when the GeoPackage has multiple layers. Use `same_extent` when the source and reference cover the same area. Use `shared_boundary` only for a verified common boundary arc. Record `scope_confirmation` only when the user has explicitly confirmed the relationship; an agent must not fill it from a filename guess. If neither condition holds, registration stops instead of forcing an interior map onto a parent outline.
+
+If secondary street labels conflict with district-level administrative fills, inspect the fills and labels first. Record the specific map evidence in `scope_review.admin_level_conflict` only when supported; it does not replace the user's extent confirmation.
+
+The workflow reports reference layers, feature composition, and extent with a side-by-side preview. An EPS/PDF page has no CRS, so its bounding box cannot be spatially intersected with the reference before fitting. Uncertain scope pauses for user confirmation. For boundaries drawn as filled ribbons, review the administrative fills and use their inward edge; a ribbon without a unique inner edge pauses for review. Small islands with more than one plausible parent are not assigned by nearest distance. After fitting, whole-extent IoU, bidirectional residuals, and transform uniqueness must pass before a GeoPackage is delivered. Required names get review crops when unresolved; ambiguous Mode C additions stop before delivery.
 
 ### 4. Inspect inputs and run
 
 ```powershell
 $skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
 & ".\.venv\Scripts\python.exe" "$skillRoot\scripts\inspect_environment.py" --config runs/my-case.yaml
-& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml --intent "Extract district boundaries; the sheet and reference cover the same extent"
+& ".\.venv\Scripts\python.exe" "$skillRoot\scripts\run.py" --config runs/my-case.yaml
+# Only after run.py reports a delivered result:
 & ".\.venv\Scripts\python.exe" "$skillRoot\scripts\check_output_manifest.py" runs/my-case/output --config runs/my-case.yaml
 ```
+
+Run the final manifest check only after `run.py` has delivered. A review status calls for inspecting `work/review.json` first. `--intent` applies only to one map and should quote the user's real request; batch runs use manifest `defaults` and case `options`.
+
+## Agent routing and review
+
+Locate scripts relative to the installed `SKILL.md`. Choose from the user's actual request: `config.example.yaml` for one map, and `batch.example.yaml` **only when multi-city extraction and merging were requested**. Inspect the source preview and reference metadata first, then act on `##VERDICT`. Record an existing user confirmation without asking again. When evidence conflicts, pause; changing labels, lowering thresholds, or selecting a merely similar outline does not establish a valid match.
+
+| Status | Next action |
+|---|---|
+| `REVIEW_SCOPE` / `NO_COMMON_BOUNDARY` | Compare the sheet and reference layers; ask for a confirmed extent or a reference with a real location anchor if evidence remains insufficient. |
+| `REVIEW_EXTRACTION` | Inspect the source, candidate previews, fills, and strokes; leave a ribbon or island unresolved when its inner edge or ownership is unclear. |
+| `REVIEW_NAMES` | Inspect `work/review_names.json` and crops; enter only names supported by the sheet. |
+| `REVIEW_REGISTRATION` | Check full-extent IoU, both P90 values, and candidate overlays; region confirmation cannot bypass the geometry gate. |
+| `REVIEW_CONFORMANCE` | Review Mode C ownership of added areas; do not publish Mode C without a unique source-supported assignment. |
+| `REGISTERED_REVIEW_NAMES` | The GPKG was delivered with incomplete names; report blank units from `qc.json` and do not call it fully named. |
+
+> [!NOTE]
+> **Automatic release thresholds are not accuracy guarantees.** Same-extent release currently requires IoU ≥ 0.95, full-boundary P90 in both directions ≤ 1% of the reference area-equivalent radius, and a unique transform. Still inspect `overlay.png`, name status, internal boundaries, and reference quality.
 
 ## 🖼️ Examples
 
@@ -143,6 +175,13 @@ These values describe their specific cases and data versions; they are not gener
 | `run.log` | Run summary |
 
 The default delivery retains geometry extracted from the source map. Consider advanced Mode C only when the EPS and reference have the same extent and the outer outline must conform exactly; it adds area without source-sheet evidence. See [methodology](references/methodology.md).
+
+## Multi-city batch delivery
+
+Use `templates/batch.example.yaml` when the user explicitly requests extraction and merging of multiple cities. One manifest names the common city-level reference, each EPS/PDF and its `parent_id`, shared `defaults`, and per-city `options`. Run `python scripts/run.py --config <batch.yaml>`. Each city retains its Mode R `registered.gpkg` and Mode C `conformed.gpkg`. Province coverage, overlap, and shared borders are checked in `province_qc.json` and `city_adjacency_qc.csv`. A complete passing set publishes `province_conformed.gpkg`; a subset produces only `batch_preview.gpkg`. See the [batch guide](references/batch-hierarchical.md).
+
+> [!WARNING]
+> **A `parent_id` is not an extent confirmation.** Check each source sheet against its reference city. Set that case's `options.scope_confirmation` only when the user explicitly confirmed the same extent. If any city needs review, inspect `work/batch_review.json` and `work/<parent_id>/review.json` and withhold the province merge. A `batch_preview.gpkg` from a subset is not a complete province output.
 
 ## 🛡️ Accuracy and limitations
 
