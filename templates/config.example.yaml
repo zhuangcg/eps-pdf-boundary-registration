@@ -19,7 +19,7 @@ extraction:
   min_fill_area_pt2: null                # optional per-sheet filter; ambiguous small islands pause
   expected_admin_polygon_count: null    # optional validation
   keep_colours_rgb: null                 # optional reviewed RGB triples, e.g. [[220,233,174]]
-                                         # exclude filled boundary ribbons; use the target fill's inner edge
+                                         # choose administrative fills, not wide boundary bands
   split_colours_rgb: []                  # optional reviewed colours reused across units
   keep_strokes: null                     # optional [{rgb: [0,0,0], width_pt: 1.0, dashes: ""}]
   snap_tolerance_pt: null                # default: no gap bridging; page points when explicitly set
@@ -34,6 +34,7 @@ reference:
   # filter: {field: adcode, value: "440100"}  # select one city before union
   # id_field: adcode                    # required if filter selects split features
 
-landmarks: []                            # shared arc seeds: two {page_pt: [x,y], lonlat: [lon,lat], source: "..."}
+landmarks: []                            # shared_boundary: two paired sheet/world points
+                                         # each {page_pt: [x,y], lonlat: [lon,lat], source: "..."}
 delivery:
   mode: R                                # C only for verified same_extent

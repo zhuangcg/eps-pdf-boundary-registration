@@ -24,7 +24,7 @@
 > **First verify what area the sheet depicts.** You need a vector EPS/PDF without geographic coordinates and an SHP/GPKG reference boundary for the same target area with a correct coordinate system. The runner checks their relationship before fitting and their agreement afterward. A matching filename, place name, or raw coordinate range is insufficient; uncertain cases pause without a final output.
 
 > [!WARNING]
-> **Interpret outputs carefully.** A batch preview contains only the processed cities; some boundaries may be registered while their names remain blank. “Conform to reference” (Mode C) may add edge areas from the reference that were not drawn on the source sheet. Do not present these as a complete, fully named province result.
+> **Interpret outputs carefully.** `batch_preview.gpkg` is created only when every city submitted in this run and the merge checks pass but the reference contains additional cities; it contains only the submitted cities. A district polygon can be placed successfully while its name stays blank because the sheet does not support a reliable reading. “Conform to reference” (Mode C) may add edge areas from the reference that were not drawn on the sheet.
 
 ## ✨ What it does
 
@@ -44,7 +44,7 @@ For one map, provide **one sheet to register** and **one boundary whose real-wor
 
 | Mode | What changes | When to use it | File |
 |---|---|---|---|
-| **Keep the drawn boundaries (Mode R, default)** | Move, rotate, and scale the whole sheet into place. Keep the sheet's internal boundaries and outline, which may differ slightly from the reference. | Usually start here. This is also the only mode for a verified shared boundary when the two maps do not cover exactly the same area. | `registered.gpkg` |
+| **Keep the drawn boundaries (Mode R, default)** | Apply one spatial transform to the whole sheet and place it against the reference. Keep its internal boundaries and outline, which may differ from the reference. | Usually start here. This is also the only mode when the two datasets share only a border segment. | `registered.gpkg` |
 | **Conform the outer outline to the reference (Mode C)** | Start with Mode R, then adjust the outside edge to the reference. An edge area not drawn on the sheet may be added to an administrative unit. | **Only when both datasets cover the same full area and an exact outer outline is needed.** Pause if the added area has no clear owner. | Keeps `registered.gpkg` and adds `conformed.gpkg` |
 
 Mode C does not prove that internal boundaries are more accurate. Added areas come from the reference and must be disclosed in the QC report. Single-map runs default to Mode R; city batches check Mode C city by city and retain Mode R for comparison.
@@ -70,7 +70,7 @@ Prepare two files with **different roles**:
 
 In the configuration, `source_map` names the sheet and `reference_boundary` names the located boundary. Set `reference_layer` if the reference GPKG has multiple layers; use `reference.filter` if one layer contains multiple cities. The output uses the reference's CRS, but the runner does not merely assign that CRS to page coordinates.
 
-**The depicted extents must be relatable.** The simplest case is a sheet and reference covering the same complete area, such as all of Shenzhen. If the sheet shows only part of the reference, it needs a verified shared boundary and reliable location points. “Both are in Shenzhen” is insufficient. The runner creates a side-by-side preview; because the sheet has no geographic coordinates, its raw numeric bounds cannot be intersected with the reference's bounds before fitting.
+**The depicted extents must be relatable.** The simplest case is a sheet and reference depicting the same complete area, such as all of Shenzhen; their lines need not coincide before registration. If the sheet shows only part of the reference, this runner needs a verified shared outer border and two points whose locations are known both on the sheet and in the real world. “Both are in Shenzhen” is insufficient. The runner creates a side-by-side preview; the sheet has no geographic coordinates, so its raw numeric bounds cannot be compared directly with the reference's bounds.
 
 **Similar-looking outlines are not proof.** For a wide colored boundary band, prefer the verified administrative fill's edge; use the band's inner edge only if its direction and uniqueness are clear. An uncertain island, name, or placement pauses for review. The fitted whole-sheet boundary must also pass the geometry checks before final delivery.
 
@@ -139,10 +139,10 @@ The paths above are examples; replace them with your own files. The less obvious
 | Setting | Plain-language meaning |
 |---|---|
 | `admin_level: district` | Extract district areas; use `street` for a street-level map. |
-| `source_scope: same_extent` | The sheet and reference cover the same complete area. Use `shared_boundary` only for a verified common border arc; otherwise find a better reference first. |
+| `source_scope: same_extent` | The sheet and reference depict the same complete area. Use `shared_boundary` only for a verified common outer border and provide two reliable location points. With no shared border, this workflow stops. |
 | `user_intent` | What the user actually wants and how the sheet relates to the reference; do not copy the sample Shenzhen request. |
 | `source_page: 2` | Optional: use page 2 of a vector PDF. Page numbers start at 1; EPS has only page 1. |
-| `scope_confirmation` | Optional: record an extent relationship the user explicitly confirmed. Do not infer a confirmation from a filename. |
+| `scope_confirmation` | Optional: record the user's explicit answer. Preserve their wording and state whether it means `same_extent` or `shared_boundary`; never infer a confirmation from a filename. |
 
 If the same reference layer contains several cities, select one with `reference.filter`; see the [configuration template](templates/config.example.yaml). If street labels appear on a map whose intended areas are district fills, inspect the sheet first. Record specific evidence in `scope_review.admin_level_conflict` only when supported; it does not replace the user's extent confirmation.
 
@@ -169,7 +169,7 @@ Agents should follow this order: **choose one map or a batch → inspect the she
 | `REVIEW_NAMES` | Complete names were requested, but some lack evidence on the sheet. Inspect text crops rather than guessing. |
 | `REVIEW_REGISTRATION` | The fit is poor or several placements are plausible. Inspect the overlay and reference; a correct city name does not override this result. |
 | `REVIEW_CONFORMANCE` | Mode C cannot tell which unit owns an added edge area. Stop the conforming step and inspect the sheet. |
-| `REGISTERED_REVIEW_NAMES` | A boundary file was delivered, but some unit names are blank; disclose that limitation. |
+| `REGISTERED_REVIEW_NAMES` | A boundary file was delivered, but some administrative polygons have blank name fields; disclose that limitation. The default name setting may also permit blank names and record them in `qc.json`. |
 
 > [!NOTE]
 > **Numeric thresholds decide automatic delivery; they are not accuracy promises.** For same-extent sheets, the runner checks overlap (IoU, closer to 1 is better), boundary distance (P90 means about 90% of sampled distances are no greater than this value), and whether the placement is unique. Current thresholds are IoU ≥ 0.95 and P90 in both directions ≤ 1% of the reference's area-equivalent radius. A failure goes to review; a pass still calls for checking the overlay and internal boundaries.
@@ -203,9 +203,11 @@ The runner keeps both Mode R and Mode C for each city, then checks for gaps, ove
 
 | Situation | Batch output |
 |---|---|
-| Only some reference cities were processed and all checks passed | `batch_preview.gpkg`, **a preview of those cities only** |
+| Only some reference cities were submitted, and every submitted city passed its checks | `batch_preview.gpkg`, **containing only the submitted cities**; names unsupported by the sheet may still be blank |
 | Every reference city and merge check passed | `province_conformed.gpkg`, plus `province_qc.json` and `city_adjacency_qc.csv` |
 | A city needs review, or the merge check fails | No province merge is published; inspect city review material first |
+
+For example, if the reference contains Guangzhou, Foshan, Shenzhen, and more, but this run submits only Guangzhou and Foshan, a passing preview contains only those two cities. If a district outline in Foshan is clear but its printed name is unreadable, the polygon remains in the preview with an empty `admin_name`; the name has not been verified.
 
 See the [batch guide](references/batch-hierarchical.md) for configuration details.
 
@@ -223,7 +225,7 @@ See the [batch guide](references/batch-hierarchical.md) for configuration detail
 
 **Can an inland map be registered using only a city or province outline?**
 
-No. The parent outline alone cannot establish the interior map's location. A shared boundary, known control points, or another reliable spatial anchor is required.
+No. This runner needs either the same complete extent or a verified shared outer border plus two reliable location points. If the local sheet does not touch the parent outline, this workflow stops; use a more suitable reference or another registration method.
 
 **What if administrative names are not recognized?**
 

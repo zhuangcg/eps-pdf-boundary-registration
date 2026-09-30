@@ -4,17 +4,17 @@
 
 | `source_scope` | 几何条件 | 拟合依据 | 交付 |
 |---|---|---|---|
-| `same_extent` | 源图行政面并集和参考多边形代表同一范围 | 完整外轮廓 | R；必要时追加 C |
-| `shared_boundary` | 源图与参考有可信的连续共同外边界弧段 | 经核实地标初始化，再用该弧段拟合 | 仅 R |
-| `no_common_boundary` | 源图是参考内部局部区域，外轮廓不接壤 | 无可用轮廓依据 | 停止配准 |
+| `same_extent` | 源图和参考表示同一个完整地区，例如两者都是深圳全市；配准前坐标不必相同 | 完整外轮廓 | 默认 Mode R；明确需要外轮廓贴合时可用 Mode C |
+| `shared_boundary` | 源图只画参考区域的一部分，但两者有经核实的连续共同外边界 | 两个已知位置的点用于初始化，再用共同边界拟合 | 仅 Mode R |
+| `no_common_boundary` | 源图是参考内部的局部区域，两条外轮廓完全不接壤 | 当前流程没有可用的边界定位依据 | 停止配准，另找参考或方法 |
 
 行政级别不决定几何关系；城市面可参照国界，街道面可参照市界，只看是否有实际共同外边界。用户同时提到“提取市级边界”和“省级参考”时，目标级别取提取对象，参考级别用于范围判断。输入提示词和显式配置优先，文件名、旧标题、原生文字与 OCR 是辅助线索。冲突或仍不确定时输出 `REVIEW_SCOPE`；明确无共同边界时输出 `NO_COMMON_BOUNDARY`。旧 `partial_parent` 是 `shared_boundary` 的别名。Mode C 仅允许同范围。
 
-源图没有 CRS，不能把页面 bbox 与参考经纬度 bbox 直接求交。流程先列出参考图层、CRS、要素数、连通片和范围，并生成 `work/scope_comparison.png` 供核对；GPKG 有多个空间图层时必须指定 `reference_layer`。同范围运行还会寻找源文件名、用户意图或图面文字与参考文件名/名称属性共有的地区名；找不到时停在 `REVIEW_SCOPE`，询问用户，并将其明确答复原文记入可选 `scope_confirmation`。名称相同只是线索，该字段也只能消除范围语义不确定性，不能跳过拟合后的几何闸门。
+源图没有真实地理坐标，不能将页面的数字坐标范围（bbox）与参考的地理坐标范围直接求交。流程先列出参考图层、CRS、要素数、连通片和范围；能读入参考边界时生成 `work/scope_comparison.png` 供核对。GPKG 有多个空间图层时必须指定 `reference_layer`。同范围运行还会寻找源文件名、用户意图或图面文字与参考文件名/名称属性共有的地区名；找不到时停在 `REVIEW_SCOPE`，询问用户，并将其明确答复原文记入可选 `scope_confirmation`。名称相同只是线索，该字段也只能消除范围语义不确定性，不能跳过拟合后的几何检查。
 
-`scope_confirmation` 仅记录用户已经给出的范围答复，不能把 Agent 的判断或批量 `parent_id` 当成答复。若目标级别与图面次要文字级别冲突，例如目标是区级填色而图上有街道文字，复核填色面和标注后可在 `scope_review.admin_level_conflict` 写明图面依据；该字段只解释级别冲突，不证明地区同范围，也不绕过几何复验。
+`scope_confirmation` 仅记录用户已经给出的范围答复，不能把 Agent 的判断或批量 `parent_id` 当成答复。记录时保留答复，并明确写出它表示 `same_extent`（同范围）、`shared_boundary`（共享外边界）还是 `no_common_boundary`（无共同外边界），便于程序识别；若原话本身已清楚包含“同范围”等词，无需另加代码。若目标级别与图面次要文字级别冲突，例如目标是区级填色而图上有街道文字，复核填色面和标注后可在 `scope_review.admin_level_conflict` 写明图面依据；该字段只解释级别冲突，不证明地区同范围，也不绕过几何复验。
 
-必要路径是 `source_map`、`reference_boundary`、`output_dir`、`work_dir`；多图层 GPKG 提供 `reference_layer`，多城市参考图层可用 `reference.filter` 与 `reference.id_field` 选定一个行政身份。多页 PDF 可用从 1 开始的 `source_page`；默认第 1 页。默认 `admin_level: auto`、`source_scope: auto`。共享弧段当前需要两处有页坐标、经纬度和来源的可信 `landmarks` 种子；地标只用于初始化，最终仍以边界弧段拟合。参考应有可信 CRS；拟合 CRS 必须能以米量距。EPS/PDF 页面点不是 GIS 坐标。
+必要路径是 `source_map`、`reference_boundary`、`output_dir`、`work_dir`；多图层 GPKG 提供 `reference_layer`，多城市参考图层可用 `reference.filter` 与 `reference.id_field` 选定一个城市。多页 PDF 可用从 1 开始的 `source_page`；默认第 1 页。默认 `admin_level: auto`、`source_scope: auto`。`shared_boundary` 当前需要两个可信 `landmarks`：每个点同时提供原图页面坐标、真实经纬度和证据来源。点只帮助找到初始位置，最终仍须用共同边界拟合。参考应有可信 CRS；拟合 CRS 必须能以米量距。EPS/PDF 页面点不是 GIS 坐标。
 
 ### 名称证据
 

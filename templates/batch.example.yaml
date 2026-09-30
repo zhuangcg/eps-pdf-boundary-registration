@@ -15,8 +15,10 @@ defaults:                         # 复用单图配置字段；只写所有城�
     method: auto
 cases:
   - source_map: "../data/guangzhou.eps"
-    parent_id: "440100"
+    parent_id: "440100"          # 参考图层的城市编号；不是范围已核实的证明
     # options:                     # 可选；图面复核后覆盖当前城市的单图参数
+    #   scope_confirmation: "用户明确确认：本图与广州市参考边界同范围，均覆盖全市"
+    #                                # 仅记录真实用户答复，不得按文件名自行填写
     #   extraction:
     #     method: fill
   - source_map: "../data/foshan.pdf"
