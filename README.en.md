@@ -1,15 +1,15 @@
 <div align="center">
 
-<h2>🗺️ Tianditu EPS Boundary Registration</h2>
+<h2>🗺️ EPS/PDF Administrative Boundary Registration</h2>
 
-**Turn CRS-free Tianditu administrative EPS maps into reviewable GIS boundaries**
+**Turn administrative vector EPS/PDF maps without geographic coordinates into reviewable GIS boundaries**
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
-[![Input](https://img.shields.io/badge/Input-Tianditu%20EPS-2b6cb0.svg)](#supported-scope)
+[![Input](https://img.shields.io/badge/Input-Vector%20EPS%2FPDF-2b6cb0.svg)](#supported-scope)
 [![Output](https://img.shields.io/badge/Output-GeoPackage-38a169.svg)](#-outputs-and-quality-checks)
 [![Use](https://img.shields.io/badge/Use-Research%20cartography-orange.svg)](#️-accuracy-and-limitations)
 
-*Focused on Tianditu administrative maps, with reviewable vectors and QC evidence.*
+*Supports vector EPS and PDF; current examples mainly use Tianditu EPS.*
 
 [🚀 Quick start](#-quick-start) · [🖼️ Examples](#️-examples) · [🛡️ Limitations](#️-accuracy-and-limitations) · [简体中文](README.md)
 

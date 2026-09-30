@@ -1,15 +1,15 @@
 <div align="center">
 
-<h2>🗺️ 天地图 EPS 行政区划边界配准</h2>
+<h2>🗺️ EPS/PDF 行政区划边界配准</h2>
 
-**把天地图导出的无坐标行政区划 EPS 图，转换成可复核的 GIS 矢量边界**
+**把没有地理坐标的行政区划矢量 EPS/PDF 图，转换成可复核的 GIS 边界**
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
-[![输入](https://img.shields.io/badge/输入-天地图%20EPS-2b6cb0.svg)](#-适用范围)
+[![输入](https://img.shields.io/badge/输入-矢量%20EPS%2FPDF-2b6cb0.svg)](#-适用范围)
 [![输出](https://img.shields.io/badge/输出-GeoPackage-38a169.svg)](#-输出与质量检查)
 [![用途](https://img.shields.io/badge/用途-科研制图-orange.svg)](#️-准确性与使用限制)
 
-*专注天地图行政区划图，配准结果附带可检查的矢量数据与质量记录。*
+*支持矢量 EPS 和 PDF；现有案例以天地图 EPS 为主。*
 
 [🚀 快速开始](#-快速开始) · [🖼️ 案例预览](#️-案例预览) · [🛡️ 准确性与使用限制](#️-准确性与使用限制) · [English](README.en.md)
 
