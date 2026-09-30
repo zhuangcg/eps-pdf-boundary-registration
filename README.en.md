@@ -83,13 +83,13 @@ In the configuration, `source_map` names the sheet and `reference_boundary` name
 ```powershell
 # Installs the skill directly from GitHub; no manual clone is needed.
 # Requires Node.js/npm (npx). Reopen Codex after the skill install.
-npx skills@latest add zhuangcg/tianditu-eps-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
+npx skills@latest add zhuangcg/eps-pdf-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/tianditu-eps-boundary-registration/main/requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/eps-pdf-boundary-registration/main/requirements.txt
 ```
 
-The npx command installs the skill files and scripts for Codex; the separate pip command installs Python libraries. You do not need to clone the repository. See the [skills CLI documentation](https://www.npmjs.com/package/skills).
+The npx command installs the skill files and scripts for Codex; the separate pip command installs Python libraries. You do not need to clone the repository. See the [skills CLI documentation](https://www.npmjs.com/package/skills). The `--skill tianditu-eps-boundary-registration` value is the existing Skill install ID; it stays the same after the repository rename.
 
 On macOS/Linux, create the environment with `python3.11 -m venv .venv` and replace `.venv\Scripts\python.exe` below with `./.venv/bin/python`.
 
@@ -238,7 +238,7 @@ No. Internal boundaries require independent same-level reference data for valida
 ## 🗂️ Project structure
 
 ```text
-tianditu-eps-boundary-registration/
+eps-pdf-boundary-registration/
 ├── scripts/       # extraction, registration, execution, and output checks
 ├── templates/     # generic config and run-log templates
 ├── examples/      # Shenzhen and Luohu case parameters

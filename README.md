@@ -81,10 +81,10 @@ Mode C 的“贴合”不代表内部区界更准确；补出的部分来自参�
 ### 1. 用 npx 安装到 Codex
 
 ```powershell
-npx skills@latest add zhuangcg/tianditu-eps-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
+npx skills@latest add zhuangcg/eps-pdf-boundary-registration --skill tianditu-eps-boundary-registration --agent codex --global --copy --yes
 ```
 
-这是 Agent Skills 的 GitHub 安装方式，会把 Skill 与所需脚本放到 Codex 的用户级目录；不需要手动克隆仓库。安装完成后重新打开 Codex 会话。`npx` 会按需运行 [skills CLI](https://www.npmjs.com/package/skills)。
+这是 Agent Skills 的 GitHub 安装方式，会把 Skill 与所需脚本放到 Codex 的用户级目录；不需要手动克隆仓库。安装完成后重新打开 Codex 会话。`npx` 会按需运行 [skills CLI](https://www.npmjs.com/package/skills)。命令中的 `--skill tianditu-eps-boundary-registration` 是原有的 Skill 安装标识；仓库更名后，它仍用这个名称安装。
 
 ### 2. 安装 Python 运行依赖
 
@@ -93,7 +93,7 @@ npx skills@latest add zhuangcg/tianditu-eps-boundary-registration --skill tiandi
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/tianditu-eps-boundary-registration/main/requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r https://raw.githubusercontent.com/zhuangcg/eps-pdf-boundary-registration/main/requirements.txt
 ```
 
 macOS/Linux 使用 `python3.11 -m venv .venv`，并将 `.venv\Scripts\python.exe` 换为 `./.venv/bin/python`。若只想手动运行源码，也可从 GitHub 下载仓库后按 `requirements.txt` 安装；这是可选方式。
@@ -239,7 +239,7 @@ $skillRoot = Join-Path $HOME ".codex\skills\tianditu-eps-boundary-registration"
 ## 🗂️ 项目结构
 
 ```text
-tianditu-eps-boundary-registration/
+eps-pdf-boundary-registration/
 ├── scripts/       # 提取、配准、运行与结果检查
 ├── templates/     # 通用配置和运行日志模板
 ├── examples/      # 深圳、罗湖案例参数
