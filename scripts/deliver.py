@@ -10,14 +10,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from shapely.geometry import MultiPolygon
-from shapely.ops import unary_union
+from shapely.geometry import LineString, MultiPolygon
+from shapely.ops import split, unary_union
 
 from register import apply_geom, parts
 
 
 class ReviewConformance(ValueError):
-    """Mode C cannot assign reference-only area without a clear sheet edge."""
+    """A repairable gap has no unique adjacent administrative unit."""
 
 
 DEFAULT_FILES = {"registered_gpkg": "registered.gpkg", "qc_json": "qc.json",
@@ -26,6 +26,9 @@ DEFAULT_C = {"conformed_gpkg": "conformed.gpkg", "conformance_qc_json": "conform
 AREA_TOLERANCE_M2 = 1e-3
 AREA_SUM_TOLERANCE_M2 = 1e-2
 SEAM_DRIFT_TOLERANCE_M = 1.0
+MAX_INTERNAL_GAP_WIDTH_PT = 0.25
+MIN_INTERNAL_GAP_ASPECT_RATIO = 10.0
+MIN_INTERNAL_GAP_RECT_FILL_RATIO = 0.8
 
 
 def filenames(config):
@@ -64,6 +67,119 @@ def _pieces(geom):
     if geom.geom_type == "MultiPolygon":
         return list(geom.geoms)
     return [p for part in geom.geoms for p in _pieces(part)]
+
+
+def _split_gap_midline(piece, rectangle, edge_lengths, adjacent, units_fit, max_width):
+    if len(adjacent) != 2:
+        return None
+    short_edge = int(np.argmin(edge_lengths))
+    opposite = (short_edge + 2) % 4
+    coords = list(rectangle.exterior.coords)
+    start = ((coords[short_edge][0] + coords[short_edge + 1][0]) / 2,
+             (coords[short_edge][1] + coords[short_edge + 1][1]) / 2)
+    end = ((coords[opposite][0] + coords[opposite + 1][0]) / 2,
+           (coords[opposite][1] + coords[opposite + 1][1]) / 2)
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = np.hypot(dx, dy)
+    if length == 0:
+        return None
+    dx, dy = dx / length, dy / length
+    extension = 2 * max_width
+    divider = LineString([(start[0] - dx * extension, start[1] - dy * extension),
+                          (end[0] + dx * extension, end[1] + dy * extension)])
+    halves = _pieces(split(piece, divider))
+    if len(halves) != 2 or unary_union(halves).symmetric_difference(piece).area > AREA_TOLERANCE_M2:
+        return None
+
+    assignments = []
+    for half in halves:
+        contacts = [half.boundary.intersection(g.boundary).length
+                    for g in units_fit.geometry]
+        ranked = sorted(contacts, reverse=True)
+        if not ranked or ranked[0] < 0.5 or (len(ranked) > 1 and
+                                             ranked[1] >= 0.99 * ranked[0]):
+            return None
+        assignments.append(int(np.argmax(contacts)))
+    if set(assignments) != set(adjacent):
+        return None
+    return list(zip(halves, assignments))
+
+
+def _repair_internal_line_gaps(units_fit, reference, m_per_pt):
+    max_width = m_per_pt * MAX_INTERNAL_GAP_WIDTH_PT
+    interior = reference.buffer(-max_width)
+    if interior.is_empty:
+        return units_fit, {"status": "no_interior_area", "repaired_pieces": 0,
+                           "repaired_area_km2": 0.0,
+                           "width_limit_pt": MAX_INTERNAL_GAP_WIDTH_PT,
+                           "max_width_m": max_width,
+                           "minimum_aspect_ratio": MIN_INTERNAL_GAP_ASPECT_RATIO,
+                           "minimum_rectangle_fill_ratio": MIN_INTERNAL_GAP_RECT_FILL_RATIO}, []
+
+    uncovered = reference.difference(unary_union(units_fit.geometry))
+    ids = list(units_fit.admin_id)
+    owners = [[] for _ in ids]
+    repairs = []
+    for piece in _pieces(uncovered):
+        rectangle = piece.minimum_rotated_rectangle
+        edges = list(rectangle.exterior.coords)
+        lengths = [np.hypot(edges[i + 1][0] - edges[i][0],
+                            edges[i + 1][1] - edges[i][1]) for i in range(4)]
+        width, length = min(lengths), max(lengths)
+        aspect = length / width if width else float("inf")
+        rect_fill = piece.area / rectangle.area if rectangle.area else 0
+        if (not interior.covers(piece) or width <= 0 or width > max_width or
+                aspect < MIN_INTERNAL_GAP_ASPECT_RATIO or
+                rect_fill < MIN_INTERNAL_GAP_RECT_FILL_RATIO):
+            continue
+        contacts = [piece.boundary.intersection(g.boundary).length
+                    for g in units_fit.geometry]
+        ranked = sorted(contacts, reverse=True)
+        if not ranked or ranked[0] < 0.5 or (len(ranked) > 1 and
+                                             ranked[1] >= 0.99 * ranked[0]):
+            adjacent = [i for i, contact in enumerate(contacts) if contact >= 0.5]
+            split_repairs = _split_gap_midline(
+                piece, rectangle, lengths, adjacent, units_fit, max_width)
+            if split_repairs is None:
+                raise ReviewConformance(
+                    "Mode R found an internal line-like gap without a unique owner: "
+                    f"area={piece.area:.3f} m2, width={width:.3f} m, "
+                    f"length={length:.3f} m, bounds={tuple(round(v, 3) for v in piece.bounds)}, "
+                    f"owner_contacts_m={ranked[:3]}")
+            for half, ix in split_repairs:
+                owners[ix].append(half)
+                repairs.append({"admin_id": ids[ix],
+                                "evidence_class": "midline_split_between_two_units",
+                                "area_km2": half.area / 1e6, "width_m": width,
+                                "length_m": length, "aspect_ratio": aspect,
+                                "rectangle_fill_ratio": rect_fill, "geometry": half})
+            continue
+        ix = int(np.argmax(contacts))
+        owners[ix].append(piece)
+        repairs.append({"admin_id": ids[ix], "evidence_class": "unique_adjacent_contact",
+                        "area_km2": piece.area / 1e6, "width_m": width,
+                        "length_m": length, "aspect_ratio": aspect,
+                        "rectangle_fill_ratio": rect_fill, "geometry": piece})
+
+    if not repairs:
+        return units_fit, {"status": "no_line_like_gaps", "repaired_pieces": 0,
+                           "repaired_area_km2": 0.0,
+                           "width_limit_pt": MAX_INTERNAL_GAP_WIDTH_PT,
+                           "max_width_m": max_width,
+                           "minimum_aspect_ratio": MIN_INTERNAL_GAP_ASPECT_RATIO,
+                           "minimum_rectangle_fill_ratio": MIN_INTERNAL_GAP_RECT_FILL_RATIO}, []
+    repaired = units_fit.copy()
+    repaired["geometry"] = [
+        unary_union([geom, *added])
+        for geom, added in zip(units_fit.geometry, owners)]
+    report = {"status": "repaired", "width_limit_pt": MAX_INTERNAL_GAP_WIDTH_PT,
+              "max_width_m": max_width, "minimum_aspect_ratio": MIN_INTERNAL_GAP_ASPECT_RATIO,
+              "minimum_rectangle_fill_ratio": MIN_INTERNAL_GAP_RECT_FILL_RATIO,
+              "repaired_pieces": len(repairs),
+              "repaired_area_km2": sum(row["area_km2"] for row in repairs),
+              "assignment": "unique contact or midline split between two adjacent units",
+              "caveat": "inferred closure; not evidence drawn on the source sheet"}
+    return repaired, report, repairs
 
 
 def _conform(units_fit, reference, output_crs, out, paths):
@@ -150,6 +266,12 @@ def write(config, page_units, label_points, name_qc, extraction, scope, registra
     units_fit["geometry"] = [apply_geom(g, matrix) for g in page_units.geometry]
     units_fit = units_fit.set_crs(fit_crs)
     units_fit["admin_level"] = scope["admin_level"]
+    mode = config.get("delivery", {}).get("mode", "R")
+    gap_repair = {"status": "handled_by_mode_c" if mode == "C" else "not_applicable"}
+    gap_rows = []
+    if mode == "R" and scope["source_scope"] == "same_extent":
+        units_fit, gap_repair, gap_rows = _repair_internal_line_gaps(
+            units_fit, reference["geometry"], registration["stats"]["m_per_pt"])
     units_fit["area_km2"] = units_fit.geometry.area / 1e6
     source = unary_union(units_fit.geometry)
     gpkg = out / files["registered_gpkg"]
@@ -165,6 +287,9 @@ def write(config, page_units, label_points, name_qc, extraction, scope, registra
         labels_fit["geometry"] = [apply_geom(g, matrix) for g in labels_fit.geometry]
         labels_fit = labels_fit.set_crs(fit_crs)
         labels_fit.to_crs(output_crs).to_file(gpkg, layer="map_labels", driver="GPKG")
+    if gap_rows:
+        gpd.GeoDataFrame(gap_rows, geometry="geometry", crs=fit_crs).to_crs(
+            output_crs).to_file(gpkg, layer="internal_gap_repairs", driver="GPKG")
     scale = registration["stats"]["m_per_pt"]
     scale_check = abs(registration["stats"]["scale_denominator"] -
                       scale * 72 / 25.4 * 1000) < 1e-6
@@ -193,11 +318,11 @@ def write(config, page_units, label_points, name_qc, extraction, scope, registra
             "iterations": len(registration["history"])},
         "validation": {"scale_identity": scale_check,
                        "invalid_geometries": int(sum(not g.is_valid for g in units_fit.geometry)),
-                       "internal_boundaries_independently_validated": False},
+                       "internal_boundaries_independently_validated": False,
+                       "internal_gap_repair": gap_repair},
         "status": "REGISTERED_WITH_QC" if name_qc["status"] not in {"incomplete", "not_checked"}
                   else "REGISTERED_REVIEW_NAMES",
     }
-    mode = config.get("delivery", {}).get("mode", "R")
     if mode == "C":
         if scope["source_scope"] != "same_extent":
             raise ValueError("Mode C requires same_extent")

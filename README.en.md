@@ -44,10 +44,10 @@ For one map, provide **one sheet to register** and **one boundary whose real-wor
 
 | Mode | What changes | When to use it | File |
 |---|---|---|---|
-| **Keep the drawn boundaries (Mode R, default)** | Apply one spatial transform to the whole sheet and place it against the reference. Keep its internal boundaries and outline, which may differ from the reference. | Usually start here. This is also the only mode when the two datasets share only a border segment. | `registered.gpkg` |
+| **Keep the drawn boundaries (Mode R, default)** | Apply one transform to the whole sheet and keep its outer outline. For same-extent sheets only, close narrow interior gaps no wider than 0.25 source-page points at the fitted scale, when one adjacent unit is the clear owner, or when an equal-sided straight gap can be split at its midline and each half has a unique owner. | Usually start here. Shared-border inputs have no full reference mask for this gap check. Ambiguous ownership pauses delivery. | `registered.gpkg` |
 | **Conform the outer outline to the reference (Mode C)** | Start with Mode R, then adjust the outside edge to the reference. An edge area not drawn on the sheet may be added to an administrative unit. | **Only when both datasets cover the same full area and an exact outer outline is needed.** Pause if the added area has no clear owner. | Keeps `registered.gpkg` and adds `conformed.gpkg` |
 
-Mode C does not prove that internal boundaries are more accurate. Added areas come from the reference and must be disclosed in the QC report. Single-map runs default to Mode R; city batches check Mode C city by city and retain Mode R for comparison.
+Mode R gap patches are inferred from adjacent boundaries, not drawn-sheet evidence; two-sided straight slits are split at their midline; they appear in the `internal_gap_repairs` layer and `qc.json`. Gaps at the outside edge are left alone. Mode C does not prove that internal boundaries are more accurate. Added areas come from the reference and must be disclosed in the QC report. City batches check Mode C city by city and retain Mode R for comparison.
 
 ## 🎯 Supported scope
 
@@ -168,7 +168,7 @@ Agents should follow this order: **choose one map or a batch → inspect the she
 | `REVIEW_EXTRACTION` | It is unclear which fills or lines are administrative areas, or which side of a band or island belongs to the target. Inspect local previews. |
 | `REVIEW_NAMES` | Complete names were requested, but some lack evidence on the sheet. Inspect text crops rather than guessing. |
 | `REVIEW_REGISTRATION` | The fit is poor or several placements are plausible. Inspect the overlay and reference; a correct city name does not override this result. |
-| `REVIEW_CONFORMANCE` | Mode C cannot tell which unit owns an added edge area. Stop the conforming step and inspect the sheet. |
+| `REVIEW_CONFORMANCE` | A Mode R interior line gap or Mode C added area has no unique owner. Pause delivery and inspect the overlay and review record. |
 | `REGISTERED_REVIEW_NAMES` | A boundary file was delivered, but some administrative polygons have blank name fields; disclose that limitation. The default name setting may also permit blank names and record them in `qc.json`. |
 
 > [!NOTE]
@@ -187,7 +187,7 @@ These values describe their specific cases and data versions; they are not gener
 
 | File | Contents |
 |---|---|
-| `registered.gpkg` | Default Mode R: placed administrative areas, sheet outline, and reference boundary |
+| `registered.gpkg` | Default Mode R; includes `internal_gap_repairs` when same-extent interior gaps were closed |
 | `conformed.gpkg` | Only after Mode C succeeds: areas whose outer outline conforms to the reference |
 | `qc.json` | Check report: extent evidence, name coverage, boundary agreement, and more |
 | `overlay.png` | Picture of the result over the reference for visual checking |
