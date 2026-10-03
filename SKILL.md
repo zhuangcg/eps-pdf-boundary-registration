@@ -15,7 +15,7 @@ description: 将无坐标的行政区划矢量 EPS/PDF 与可信 SHP/GPKG 边界
 2. 用 `inspect_environment.py --config <run.yaml>` 检查环境与路径。查看源图预览、参考图层/CRS/要素/范围，判断两者是否表示同一个完整地区（`same_extent`），或只共享一段经核实的外边界（`shared_boundary`）。后者还需两个可信定位点：每个点都要有原图页面位置、真实经纬度及来源，写入 `landmarks`。若完全没有共同边界，当前流程停止。对照图只辅助判断，不能代替拟合后复验。
 3. 用 `run.py --config <run.yaml>` 执行。优先从经确认的行政填色面取界；有宽度的边界色带不作为行政面，只有图面证据表明朝向目标行政区的内缘唯一时才使用。行政区名称只来自图面文字、文字识别（OCR）或带裁片的人工复核。同色离岛归属不明时不按最近距离猜测。
 4. 根据终端 `##VERDICT` 与 `work/review.json` 处理复核状态。只调整有证据支持的配置后重跑；不要通过更换标签、改写用户意图或降低几何闸门来强行放行。若图面街道标注与目标区级填色面冲突，核实后可在 `scope_review.admin_level_conflict` 留下具体图面依据；它不能替代 `scope_confirmation`。若用户已确认范围，不重复询问，但仍须通过几何复验。
-5. 成功后检查 `qc.json`、`overlay.png` 和输出文件，并明确报告空白名称、未独立验证的内部界线及残余误差。同范围默认 Mode R 会在输出前检查参考范围内部的狭长缺口：仅当缺口宽度不超过配准尺度下 0.25 个页面点、且相邻行政面归属唯一时才补入；补块写入 `registered.gpkg` 的 `internal_gap_repairs` 图层并记录在 `qc.json`。归属不唯一时进入 `REVIEW_CONFORMANCE`，不交付最终文件。外缘缺口不在此修补范围内，共同外边界模式没有完整参考范围来执行检查。Mode C 仍用于需要贴合外轮廓的同范围图；它可能从参考数据补入原图未画出的面积，不能把补入部分说成源图证据。[方法与门槛](references/methodology.md)及[QC 字段](references/qc-spec.md)按需查阅。只在交付成功后运行 `check_output_manifest.py`。
+5. 成功后检查 `qc.json`、`overlay.png` 和输出文件，并明确报告空白名称、未独立验证的内部界线及残余误差。同范围默认 Mode R 会在输出前检查参考范围内部的狭长缺口：仅当缺口宽度不超过配准尺度下 0.25 个页面点、长宽比至少 10、且近似直条时才处理：相邻行政面归属唯一就补入该面；若两面接触相近，则沿缝隙中线分成两块，只有两块分别唯一对应一侧时才补入。其他情况暂停复核。补块写入 `registered.gpkg` 的 `internal_gap_repairs` 图层并记录在 `qc.json`。无法唯一归属或可靠中分时进入 `REVIEW_CONFORMANCE`，不交付最终文件。外缘缺口不在此修补范围内，共同外边界模式没有完整参考范围来执行检查。Mode C 仍用于需要贴合外轮廓的同范围图；它可能从参考数据补入原图未画出的面积，不能把补入部分说成源图证据。[方法与门槛](references/methodology.md)及[QC 字段](references/qc-spec.md)按需查阅。只在交付成功后运行 `check_output_manifest.py`。
 
 ```powershell
 python "<skill-root>/scripts/inspect_environment.py" --config <run.yaml>
