@@ -44,10 +44,10 @@ For one map, provide **one sheet to register** and **one boundary whose real-wor
 
 | Mode | What changes | When to use it | File |
 |---|---|---|---|
-| **Keep the drawn boundaries (Mode R, default)** | Apply one transform to the whole sheet and keep its outer outline. For same-extent sheets only, close narrow interior gaps no wider than 0.25 source-page points at the fitted scale, and only when one adjacent unit is the clear owner. | Usually start here. Shared-border inputs have no full reference mask for this gap check. Ambiguous ownership pauses delivery. | `registered.gpkg` |
+| **Keep the drawn boundaries (Mode R, default)** | Apply one transform to the whole sheet and keep its outer outline. For same-extent sheets only, close narrow interior gaps no wider than 0.25 source-page points at the fitted scale, when one adjacent unit is the clear owner, or when an equal-sided straight gap can be split at its midline and each half has a unique owner. | Usually start here. Shared-border inputs have no full reference mask for this gap check. Ambiguous ownership pauses delivery. | `registered.gpkg` |
 | **Conform the outer outline to the reference (Mode C)** | Start with Mode R, then adjust the outside edge to the reference. An edge area not drawn on the sheet may be added to an administrative unit. | **Only when both datasets cover the same full area and an exact outer outline is needed.** Pause if the added area has no clear owner. | Keeps `registered.gpkg` and adds `conformed.gpkg` |
 
-Mode R gap patches are inferred from adjacent boundaries, not drawn-sheet evidence; they appear in the `internal_gap_repairs` layer and `qc.json`. Gaps at the outside edge are left alone. Mode C does not prove that internal boundaries are more accurate. Added areas come from the reference and must be disclosed in the QC report. City batches check Mode C city by city and retain Mode R for comparison.
+Mode R gap patches are inferred from adjacent boundaries, not drawn-sheet evidence; two-sided straight slits are split at their midline; they appear in the `internal_gap_repairs` layer and `qc.json`. Gaps at the outside edge are left alone. Mode C does not prove that internal boundaries are more accurate. Added areas come from the reference and must be disclosed in the QC report. City batches check Mode C city by city and retain Mode R for comparison.
 
 ## 🎯 Supported scope
 
