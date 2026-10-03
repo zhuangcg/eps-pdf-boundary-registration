@@ -20,6 +20,10 @@ Shapefile 的 `inputs.reference_sha256` 与交付缓存指纹包含同名 `.shp/
 
 `names.scan_status` 为 `native`、`ocr`、`native+ocr` 或 `ocr_unavailable`；`named_units/total_units` 是覆盖率。 `no_labels_found` 仅在扫描成功且无标签时成立，此时允许空名几何和无 `map_labels`。`not_checked` 表示 OCR 环境失败，不能解释为无名；`incomplete` 给出 `unresolved_admin_ids`。显式 `names.mode: required` 只有全名通过才交付；否则 `REVIEW_NAMES` 在 `work/review_names.json` 列出未解决面、局部裁片和附近的识别文本，不写最终 GPKG。
 
+### Mode R 内部狭长缝隙
+
+同范围 Mode R 在交付前以参考面作为内部缺口检测范围，只补宽度不超过配准尺度下 0.25 个源页面点、长宽比至少 10、且距参考外边界大于该宽度的缺口。补块只分给与缺口边界接触长度明显占优的唯一行政面；多个归属接近时返回 `REVIEW_CONFORMANCE`，不写最终 GPKG。`qc.json.validation.internal_gap_repair` 记录检查状态、宽度上限、补块数、总面积及归属方法；补块几何和 `admin_id` 保存在 `registered.gpkg` 的 `internal_gap_repairs` 图层。该修补只根据参考范围和相邻边界推断，不能当作原图证据。外缘缺口和非狭长区域不自动修补；`shared_boundary` 无完整参考范围，跳过此检查。
+
 ### Mode C 与解释边界
 
 Mode C 仅用于同范围。 `conformance_qc.json` 检查对称差、外溢、漏覆盖、行政面重叠、面积和、内部接缝漂移及无效几何，并记录无源图证据补块。无法唯一决定补面归属时返回 `REVIEW_CONFORMANCE` 与 `work/review_conformance.png`，不写最终 GPKG；全部交付文件先经临时目录检查，避免留下部分成果。浮点面积断言允许极小数值余量；“对称差 0”只表示面覆盖一致，不表示顶点序列一致，更不证明内部行政界线准确。
