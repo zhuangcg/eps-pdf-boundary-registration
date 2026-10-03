@@ -22,7 +22,7 @@ Shapefile 的 `inputs.reference_sha256` 与交付缓存指纹包含同名 `.shp/
 
 ### Mode R 内部狭长缝隙
 
-同范围 Mode R 在交付前以参考面作为内部缺口检测范围，只补宽度不超过配准尺度下 0.25 个源页面点、长宽比至少 10、且距参考外边界大于该宽度的缺口。补块只分给与缺口边界接触长度明显占优的唯一行政面；多个归属接近时返回 `REVIEW_CONFORMANCE`，不写最终 GPKG。`qc.json.validation.internal_gap_repair` 记录检查状态、宽度上限、补块数、总面积及归属方法；补块几何和 `admin_id` 保存在 `registered.gpkg` 的 `internal_gap_repairs` 图层。该修补只根据参考范围和相邻边界推断，不能当作原图证据。外缘缺口和非狭长区域不自动修补；`shared_boundary` 无完整参考范围，跳过此检查。
+同范围 Mode R 在交付前以参考面作为内部缺口检测范围，只补宽度不超过配准尺度下 0.25 个源页面点、长宽比至少 10、最小旋转矩形填充率至少 0.8、且距参考外边界大于该宽度的缺口。补块分给接触长度明显占优的唯一行政面；若两侧接触长度相近，则沿最小旋转矩形长轴的中线切分，只在两半分别唯一对应两个相邻面时补入。中分失败或其他多解返回 `REVIEW_CONFORMANCE`，不写最终 GPKG。`qc.json.validation.internal_gap_repair` 记录检查状态、宽度上限、形状阈值、补块数、总面积及归属方法；补块几何和 `admin_id` 保存在 `registered.gpkg` 的 `internal_gap_repairs` 图层。该修补只根据参考范围和相邻边界推断，不能当作原图证据。外缘缺口和非狭长区域不自动修补；`shared_boundary` 无完整参考范围，跳过此检查。
 
 ### Mode C 与解释边界
 
